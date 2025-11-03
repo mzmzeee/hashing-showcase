@@ -1,0 +1,20 @@
+@Api_HostAddress = http://localhost:8080
+
+### Register a user
+POST {{Api_HostAddress}}/api/auth/register
+Content-Type: application/json
+
+{
+	"username": "demo-user",
+	"password": "strongpassword123"
+}
+
+### Login with the user
+POST {{Api_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+	"username": "demo-user",
+	"password": "strongpassword123"
+}
+
