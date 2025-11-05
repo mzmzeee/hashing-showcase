@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   db:
     image: postgres:15
@@ -24,8 +22,17 @@ services:
       - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       - PasswordHashing__Iterations=${PASSWORD_HASHING_ITERATIONS:-10000}
+      - AnimationService__BaseUrl=http://animation-api:5000/
     depends_on:
       - db
+
+  animation-api:
+    build:
+      context: ./animation_service
+    environment:
+      - FLASK_ENV=production
+    ports:
+      - "${ANIMATION_API_PORT:-5000}:5000"
 
 volumes:
   postgres_data:

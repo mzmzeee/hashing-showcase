@@ -23,5 +23,11 @@ public class User
     [Required]
     public int Iterations { get; set; }
 
+    [Column("public_key", TypeName = "text")]
+    public string? PublicKey { get; set; }
+
+    [Column("private_key", TypeName = "text")]
+    public string? PrivateKey { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

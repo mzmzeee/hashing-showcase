@@ -1,7 +1,9 @@
+using HashingDemo.Api.Auth;
 using HashingDemo.Api.Models;
 using HashingDemo.Data;
 using HashingDemo.Data.Entities;
 using HashingDemo.Logic;
+using System.Linq;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -10,7 +12,11 @@ namespace HashingDemo.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class AuthController(AppDbContext context, IConfiguration configuration) : ControllerBase
+public class AuthController(
+    AppDbContext context,
+    IConfiguration configuration,
+    RsaKeyService rsaKeyService,
+    TokenStore tokenStore) : ControllerBase
 {
     [HttpPost("register")]
     public async Task<IActionResult> Register(RegisterRequest request)
@@ -35,13 +41,16 @@ public class AuthController(AppDbContext context, IConfiguration configuration) 
 
         var salt = PasswordHasher.GenerateSalt();
         var passwordHash = PasswordHasher.ComputePasswordHash(request.Password, salt, iterations);
+        var (publicKey, privateKey) = rsaKeyService.GenerateKeys();
 
         var user = new User
         {
             Username = normalizedUsername,
             PasswordHash = passwordHash,
             Salt = PasswordHasher.ToHexString(salt),
-            Iterations = iterations
+            Iterations = iterations,
+            PublicKey = publicKey,
+            PrivateKey = privateKey
         };
 
         context.Users.Add(user);
@@ -53,7 +62,7 @@ public class AuthController(AppDbContext context, IConfiguration configuration) 
     [HttpPost("login")]
     public async Task<IActionResult> Login(LoginRequest request)
     {
-    var normalizedUsername = request.Username?.Trim() ?? string.Empty;
+        var normalizedUsername = request.Username?.Trim() ?? string.Empty;
         var user = await context.Users.FirstOrDefaultAsync(u => u.Username == normalizedUsername);
 
         var iterations = user?.Iterations ?? configuration.GetValue<int>("PasswordHashing:Iterations", 10000);
@@ -76,6 +85,24 @@ public class AuthController(AppDbContext context, IConfiguration configuration) 
             return Unauthorized();
         }
 
-        return Ok();
+        var token = tokenStore.IssueToken(user.Id);
+
+        return Ok(new
+        {
+            token,
+            userId = user.Id,
+            username = user.Username,
+            publicKey = user.PublicKey
+        });
+    }
+
+    [HttpGet("public_keys")]
+    public async Task<IActionResult> GetPublicKeys()
+    {
+        var users = await context.Users
+            .Select(u => new { username = u.Username, publicKey = u.PublicKey })
+            .ToListAsync();
+
+        return Ok(users);
     }
 }
