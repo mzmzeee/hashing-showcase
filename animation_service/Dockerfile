@@ -7,13 +7,17 @@ ENV PYTHONUNBUFFERED=1 \
 # Manim depends on Cairo, ffmpeg, and other system libraries.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        build-essential \
-        ffmpeg \
-        libcairo2 \
-        libpango1.0-0 \
-        libgl1 \
-        libgdk-pixbuf-2.0-0 \
-        wget \
+    build-essential \
+    ffmpeg \
+    libcairo2 \
+    libcairo2-dev \
+    libpango-1.0-0 \
+    libpango1.0-dev \
+    libpangocairo-1.0-0 \
+    libgl1 \
+    libgdk-pixbuf-2.0-0 \
+    pkg-config \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
