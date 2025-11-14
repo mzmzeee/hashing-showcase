@@ -28,5 +28,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
         modelBuilder.Entity<Message>()
             .HasIndex(m => new { m.RecipientId, m.CreatedAt });
+
+        modelBuilder.Entity<Message>()
+            .Property(m => m.VerificationStatus)
+            .HasDefaultValue("Unsigned");
     }
 }

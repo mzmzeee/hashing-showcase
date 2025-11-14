@@ -23,6 +23,8 @@ services:
       - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       - PasswordHashing__Iterations=${PASSWORD_HASHING_ITERATIONS:-10000}
       - AnimationService__BaseUrl=http://animation-api:5000/
+    volumes:
+      - animation_videos:/app/animation_videos
     depends_on:
       - db
 
@@ -33,6 +35,9 @@ services:
       - FLASK_ENV=production
     ports:
       - "${ANIMATION_API_PORT:-5000}:5000"
+    volumes:
+      - animation_videos:/app/animation_videos
 
 volumes:
   postgres_data:
+  animation_videos:

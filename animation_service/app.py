@@ -16,9 +16,6 @@ def _validate_payload(payload: dict[str, Any]) -> tuple[bool, list[str]]:
     required_fields = (
         "message",
         "message_hash_hex",
-        "signature_base64",
-        "decrypted_hash_hex",
-        "recomputed_hash_hex",
     )
     errors: list[str] = []
     for key in required_fields:
@@ -26,9 +23,18 @@ def _validate_payload(payload: dict[str, Any]) -> tuple[bool, list[str]]:
         if not isinstance(value, str) or not value.strip():
             errors.append(f"Missing or invalid field: {key}")
 
+    # Optional fields with validation
+    signature_base64 = payload.get("signature_base64")
+    if signature_base64 is not None and not isinstance(signature_base64, str):
+        errors.append("signature_base64 must be a string when provided.")
+
     hashes_match = payload.get("hashes_match")
     if hashes_match is not None and not isinstance(hashes_match, bool):
         errors.append("hashes_match must be a boolean when provided.")
+
+    verification_status = payload.get("verification_status")
+    if verification_status is not None and verification_status not in ("Valid", "Invalid", "Unsigned"):
+        errors.append("verification_status must be one of: Valid, Invalid, Unsigned")
 
     return (len(errors) == 0, errors)
 
@@ -48,13 +54,15 @@ def _run_manim(payload_path: Path, media_dir: Path) -> Path:
         "signature",
     ]
 
+    # Reduced timeout for faster test execution (can be increased for production)
+    timeout_seconds = 60 if os.environ.get("FLASK_ENV") == "test" else 180
     result = subprocess.run(
         cmd,
         cwd=Path(__file__).parent,
         env=env,
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=timeout_seconds,
         check=False,
     )
 

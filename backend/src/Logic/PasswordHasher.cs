@@ -1,11 +1,12 @@
 using System.Security.Cryptography;
 using System.Text;
+using Isopoh.Cryptography.Argon2;
+using Isopoh.Cryptography.SecureArray;
 
 namespace HashingDemo.Logic;
 
 /// <summary>
-/// Provides helper methods for password hashing and verification.
-/// This implementation is for educational purposes only and should not be used in production.
+/// Provides helper methods for password hashing and verification using Argon2id.
 /// </summary>
 public static class PasswordHasher
 {
@@ -36,18 +37,26 @@ public static class PasswordHasher
 
     public static string ComputePasswordHash(string password, byte[] salt, int iterations)
     {
-        var passwordBytes = Encoding.UTF8.GetBytes(password);
-        var combined = new byte[passwordBytes.Length + salt.Length];
-        Buffer.BlockCopy(passwordBytes, 0, combined, 0, passwordBytes.Length);
-        Buffer.BlockCopy(salt, 0, combined, passwordBytes.Length, salt.Length);
-
-        var hash = Sha256Pure.ComputeHash(combined);
-
-        // Apply password stretching
-        for (var i = 1; i < iterations; i++)
+        // Argon2id configuration
+        // MemoryCost (m) = 65536 KiB = 64 MB
+        // TimeCost (t) = iterations parameter (typically 3-4 for Argon2)
+        // Lanes = 4
+        // Threads = 1 (single-threaded for simplicity)
+        var config = new Argon2Config
         {
-            hash = Sha256Pure.ComputeHash(hash);
-        }
+            Type = Argon2Type.HybridAddressing,
+            Password = Encoding.UTF8.GetBytes(password),
+            Salt = salt,
+            MemoryCost = 65536, // 64 MB in KiB
+            TimeCost = Math.Max(3, iterations), // Ensure at least 3 iterations
+            Lanes = 4,
+            Threads = 1,
+            HashLength = 32 // 256 bits = 32 bytes
+        };
+
+        using var argon2A = new Argon2(config);
+        using var secureArray = argon2A.Hash();
+        var hash = secureArray.Buffer.ToArray();
 
         return ToHexString(hash);
     }

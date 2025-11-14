@@ -1,5 +1,8 @@
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -11,13 +14,18 @@ using HashingDemo.Logic;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HashingDemo.Api.Controllers;
 
 [ApiController]
 [Route("api/messages")]
 [Authorize(AuthenticationSchemes = TokenAuthenticationDefaults.AuthenticationScheme)]
-public class MessageController(AppDbContext context) : ControllerBase
+public class MessageController(
+    AppDbContext context,
+    IHttpClientFactory httpClientFactory,
+    SignatureVisualizationService visualizationService,
+    IServiceScopeFactory serviceScopeFactory) : ControllerBase
 {
     [HttpPost]
     public async Task<IActionResult> SendMessage(SendMessageRequest request)
@@ -34,11 +42,6 @@ public class MessageController(AppDbContext context) : ControllerBase
             return Unauthorized();
         }
 
-        if (string.IsNullOrWhiteSpace(sender.PrivateKey))
-        {
-            return BadRequest("Sender's private key is missing.");
-        }
-
         var normalizedRecipient = request.RecipientUsername?.Trim() ?? string.Empty;
         if (normalizedRecipient.Length == 0)
         {
@@ -51,12 +54,32 @@ public class MessageController(AppDbContext context) : ControllerBase
         }
 
         var messageBytes = Encoding.UTF8.GetBytes(request.Content);
-        var messageHash = Sha256Pure.ComputeHash(messageBytes);
+        var messageHash = System.Security.Cryptography.SHA256.HashData(messageBytes);
+        
+        string signatureBase64;
+        string verificationStatus;
 
-        using var rsa = RSA.Create();
-        rsa.ImportFromPem(sender.PrivateKey);
-        var signature = rsa.SignHash(messageHash, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-        var signatureBase64 = Convert.ToBase64String(signature);
+        // Handle signed and unsigned messages
+        if (string.IsNullOrWhiteSpace(sender.PrivateKey) || string.IsNullOrWhiteSpace(sender.PublicKey))
+        {
+            // Unsigned message (fake user or no key)
+            signatureBase64 = string.Empty;
+            verificationStatus = "Unsigned";
+        }
+        else
+        {
+            // Sign the message
+            using var rsa = RSA.Create();
+            rsa.ImportFromPem(sender.PrivateKey);
+            var signature = rsa.SignHash(messageHash, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            signatureBase64 = Convert.ToBase64String(signature);
+
+            // Immediately verify the signature to determine status
+            using var verifyRsa = RSA.Create();
+            verifyRsa.ImportFromPem(sender.PublicKey);
+            var isValid = verifyRsa.VerifyHash(messageHash, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            verificationStatus = isValid ? "Valid" : "Invalid";
+        }
 
         var message = new Message
         {
@@ -64,13 +87,106 @@ public class MessageController(AppDbContext context) : ControllerBase
             RecipientId = recipient.Id,
             Content = request.Content,
             Signature = signatureBase64,
+            VerificationStatus = verificationStatus,
+            VisualizationUrl = null,
             CreatedAt = DateTime.UtcNow
         };
 
         context.Messages.Add(message);
         await context.SaveChangesAsync();
 
+        // Trigger background task to generate video (non-blocking, fire-and-forget)
+        // Using ConfigureAwait(false) to avoid capturing context for better performance
+        _ = Task.Run(async () => await GenerateVideoAsync(message.Id, request.Content, signatureBase64, sender.PublicKey, verificationStatus).ConfigureAwait(false));
+
         return Created($"/api/messages/{message.Id}", new { messageId = message.Id });
+    }
+
+    private async Task GenerateVideoAsync(Guid messageId, string content, string signatureBase64, string? publicKeyPem, string verificationStatus)
+    {
+        try
+        {
+            // Create visualization data if we have a public key and signature
+            SignatureVisualizationData? visualizationData = null;
+            if (!string.IsNullOrWhiteSpace(publicKeyPem) && !string.IsNullOrWhiteSpace(signatureBase64))
+            {
+                visualizationData = visualizationService.Create(content, signatureBase64, publicKeyPem);
+            }
+
+            // Prepare payload for animation service
+            var payload = new
+            {
+                message = content,
+                message_hash_hex = visualizationData?.MessageHashHex ?? Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(content))).ToLowerInvariant(),
+                signature_base64 = signatureBase64,
+                decrypted_hash_hex = visualizationData?.DecryptedHashHex ?? string.Empty,
+                recomputed_hash_hex = visualizationData?.RecomputedHashHex ?? visualizationData?.MessageHashHex ?? string.Empty,
+                hashes_match = visualizationData?.HashesMatch ?? false,
+                verification_status = verificationStatus
+            };
+
+            // Call animation service
+            var client = httpClientFactory.CreateClient("AnimationService");
+            var response = await client.PostAsJsonAsync("generate-animation", payload);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                // Log error but don't throw - we'll leave VisualizationUrl as null
+                return;
+            }
+
+            // Save video to shared volume and update message with URL
+            var videoStream = await response.Content.ReadAsStreamAsync();
+            var videoPath = $"/app/animation_videos/{messageId}.mp4";
+            
+            // Ensure directory exists (only if path exists, otherwise skip video saving for tests)
+            var directory = Path.GetDirectoryName(videoPath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                if (!Directory.Exists(directory))
+                {
+                    try
+                    {
+                        Directory.CreateDirectory(directory);
+                    }
+                    catch
+                    {
+                        // Directory creation failed (likely in test environment), skip video saving
+                        return;
+                    }
+                }
+
+                try
+                {
+                    using (var fileStream = new FileStream(videoPath, FileMode.Create, FileAccess.Write))
+                    {
+                        await videoStream.CopyToAsync(fileStream);
+                    }
+
+                    // Update message with visualization URL using a new scope
+                    using (var scope = serviceScopeFactory.CreateScope())
+                    {
+                        var updateContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                        var message = await updateContext.Messages.FindAsync(messageId);
+                        if (message is not null)
+                        {
+                            message.VisualizationUrl = $"/animation_videos/{messageId}.mp4";
+                            await updateContext.SaveChangesAsync();
+                        }
+                    }
+                }
+                catch
+                {
+                    // File saving failed, skip but don't throw
+                    return;
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Silently handle errors - video generation is best-effort
+            // The VisualizationUrl will remain null
+        }
     }
 
     [HttpGet("inbox")]
@@ -83,6 +199,7 @@ public class MessageController(AppDbContext context) : ControllerBase
         }
 
         var messages = await context.Messages
+            .AsNoTracking() // Read-only query, no tracking needed
             .Where(m => m.RecipientId == recipientId)
             .Include(m => m.Sender)
             .OrderByDescending(m => m.CreatedAt)
@@ -90,6 +207,8 @@ public class MessageController(AppDbContext context) : ControllerBase
                 m.Id,
                 m.Sender != null ? m.Sender.Username : "(unknown)",
                 m.Content,
+                m.VerificationStatus,
+                m.VisualizationUrl,
                 m.CreatedAt))
             .ToListAsync();
 

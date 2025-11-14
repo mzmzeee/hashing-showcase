@@ -13,7 +13,7 @@ public class PasswordHasherTests
         var password = "mysecretpassword";
         var salt1 = PasswordHasher.GenerateSalt();
         var salt2 = PasswordHasher.GenerateSalt();
-        var iterations = 100;
+    var iterations = 3;
 
         // Act
         var hash1 = PasswordHasher.ComputePasswordHash(password, salt1, iterations);
@@ -29,8 +29,8 @@ public class PasswordHasherTests
         // Arrange
         var password = "mysecretpassword";
         var salt = PasswordHasher.GenerateSalt();
-        var iterations1 = 100;
-        var iterations2 = 200;
+    var iterations1 = 3;
+    var iterations2 = 4;
 
         // Act
         var hash1 = PasswordHasher.ComputePasswordHash(password, salt, iterations1);

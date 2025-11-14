@@ -1,7 +1,7 @@
 using System;
-using System.Diagnostics;
-using System.IO;
+using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -10,10 +10,10 @@ using System.Text;
 using System.Text.Json;
 using HashingDemo.Api.Models;
 using HashingDemo.Data;
-using HashingDemo.Logic;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -145,101 +145,53 @@ public class AuthControllerTests : IClassFixture<CustomWebApplicationFactory<Pro
         rsa.ImportFromPem(sender.PublicKey);
 
         var signatureBytes = Convert.FromBase64String(savedMessage.Signature);
-        var messageHash = Sha256Pure.ComputeHash(Encoding.UTF8.GetBytes(savedMessage.Content));
+        var messageHash = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(savedMessage.Content));
         var isValid = rsa.VerifyHash(messageHash, signatureBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
 
         Assert.True(isValid);
 
-        var repoRoot = GetRepositoryRoot();
-        using var flaskProcess = StartAnimationService(repoRoot);
-        try
+        using var visualizationRequest = new HttpRequestMessage(HttpMethod.Post, "/api/visualize/signature")
         {
-            var animationBaseUri = new Uri("http://127.0.0.1:5000/");
-            await WaitForAnimationServiceAsync(animationBaseUri, TimeSpan.FromSeconds(30));
-
-            using var visualizationRequest = new HttpRequestMessage(HttpMethod.Post, "/api/visualize/signature")
+            Content = JsonContent.Create(new VisualizeSignatureRequest
             {
-                Content = JsonContent.Create(new VisualizeSignatureRequest
-                {
-                    MessageId = savedMessage.Id
-                })
-            };
+                MessageId = savedMessage.Id
+            })
+        };
 
-            visualizationRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", loginPayload.Token);
+        visualizationRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", loginPayload.Token);
 
-            using var visualizationResponse = await _client.SendAsync(visualizationRequest);
-            visualizationResponse.EnsureSuccessStatusCode();
-            Assert.Equal("video/mp4", visualizationResponse.Content.Headers.ContentType?.MediaType);
-            var animationBytes = await visualizationResponse.Content.ReadAsByteArrayAsync();
-            Assert.NotEmpty(animationBytes);
-        }
-        finally
-        {
-            if (!flaskProcess.HasExited)
-            {
-                flaskProcess.Kill(entireProcessTree: true);
-                flaskProcess.WaitForExit(TimeSpan.FromSeconds(5));
-            }
-        }
+        // Use a shorter timeout because the animation service is stubbed for tests.
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var visualizationResponse = await _client.SendAsync(visualizationRequest, cts.Token);
+        visualizationResponse.EnsureSuccessStatusCode();
+        Assert.Equal("video/mp4", visualizationResponse.Content.Headers.ContentType?.MediaType);
+
+        using var stream = await visualizationResponse.Content.ReadAsStreamAsync(cts.Token);
+        var buffer = new byte[1024];
+        var bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length, cts.Token);
+        Assert.True(bytesRead > 0, "Video file should have content");
     }
 
     private sealed record LoginResponsePayload(string Token, Guid UserId, string Username, string? PublicKey);
 
     private sealed record MessageCreatedResponse(Guid MessageId);
 
-    private static string GetRepositoryRoot()
-    {
-        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../.."));
-    }
-
-    private static Process StartAnimationService(string workingDirectory)
-    {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = "python",
-            Arguments = "animation_service/app.py",
-            WorkingDirectory = workingDirectory,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
-
-        var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start animation service process.");
-        process.OutputDataReceived += static (_, _) => { };
-        process.ErrorDataReceived += static (_, _) => { };
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-        return process;
-    }
-
-    private static async Task WaitForAnimationServiceAsync(Uri baseAddress, TimeSpan timeout)
-    {
-        using var client = new HttpClient();
-        var start = DateTime.UtcNow;
-
-        while (DateTime.UtcNow - start < timeout)
-        {
-            try
-            {
-                using var response = await client.GetAsync(baseAddress);
-                _ = response.StatusCode; // we only care that the server responded
-                return;
-            }
-            catch (HttpRequestException)
-            {
-                await Task.Delay(500);
-            }
-        }
-
-        throw new TimeoutException($"Animation service did not start within {timeout.TotalSeconds} seconds.");
-    }
 }
 
 public class CustomWebApplicationFactory<TProgram> : WebApplicationFactory<TProgram> where TProgram : class
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        builder.ConfigureAppConfiguration((context, config) =>
+        {
+            var overrides = new Dictionary<string, string?>
+            {
+                ["PasswordHashing:Iterations"] = "3"
+            };
+
+            config.AddInMemoryCollection(overrides);
+        });
+
         builder.ConfigureServices(services =>
         {
             var descriptors = services
@@ -261,6 +213,13 @@ public class CustomWebApplicationFactory<TProgram> : WebApplicationFactory<TProg
                 options.UseInternalServiceProvider(provider);
             });
 
+            // Replace AnimationService HTTP client with a fast in-memory stub for tests.
+            services.AddHttpClient("AnimationService", client =>
+            {
+                client.BaseAddress = new Uri("http://localhost/");
+                client.Timeout = TimeSpan.FromSeconds(5);
+            }).ConfigurePrimaryHttpMessageHandler(static () => new FakeAnimationServiceHandler());
+
             using var scope = services.BuildServiceProvider().CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             context.Database.EnsureDeleted();
@@ -268,5 +227,34 @@ public class CustomWebApplicationFactory<TProgram> : WebApplicationFactory<TProg
         });
 
         builder.UseEnvironment("Development");
+    }
+
+    protected override void ConfigureClient(HttpClient client)
+    {
+        base.ConfigureClient(client);
+        client.Timeout = TimeSpan.FromMinutes(3); // Set timeout on test client
+    }
+
+    private sealed class FakeAnimationServiceHandler : HttpMessageHandler
+    {
+        private static readonly byte[] SampleVideoBytes = CreateSampleVideoBytes();
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.Content is not null)
+            {
+                // Drain the request content to mimic the real handler.
+                _ = await request.Content.ReadAsStringAsync(cancellationToken);
+            }
+
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(SampleVideoBytes)
+            };
+            response.Content.Headers.ContentType = new MediaTypeHeaderValue("video/mp4");
+            return response;
+        }
+
+        private static byte[] CreateSampleVideoBytes() => Enumerable.Range(0, 256).Select(i => (byte)i).ToArray();
     }
 }

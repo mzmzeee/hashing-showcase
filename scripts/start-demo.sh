@@ -190,6 +190,7 @@ fi
 
 if [[ $USE_DOCKER -eq 1 ]]; then
   echo "Starting PostgreSQL, API, and animation services..."
+  echo "Note: Shared volume 'animation_videos' is configured for API and animation service."
   if ! docker compose --project-directory "$ROOT_DIR" -f "$COMPOSE_FILE" up --build -d; then
     echo "\nFailed to start Docker services. Check that your environment supports Docker networking" >&2
     echo "or rerun with SKIP_DOCKER=1 if you plan to point at externally hosted services." >&2

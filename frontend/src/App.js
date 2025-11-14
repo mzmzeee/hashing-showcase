@@ -1,21 +1,45 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import './App.css';
 
 const defaultAuthState = { username: '', password: '' };
+const storageKey = 'hashing-demo-session';
+
+const isBrowserEnvironment = () =>
+    typeof window !== 'undefined' && typeof window.document !== 'undefined';
+
+const getBrowserStorage = () => {
+    if (!isBrowserEnvironment()) {
+        return null;
+    }
+
+    try {
+        return window.localStorage;
+    } catch (error) {
+        console.warn('Local storage is unavailable', error);
+        return null;
+    }
+};
+
+const readSessionFromStorage = () => {
+    const storage = getBrowserStorage();
+    if (!storage) {
+        return null;
+    }
+
+    try {
+        const stored = storage.getItem(storageKey);
+        return stored ? JSON.parse(stored) : null;
+    } catch (error) {
+        console.warn('Failed to read session from storage', error);
+        return null;
+    }
+};
 
 function App() {
     const [isLogin, setIsLogin] = useState(true);
     const [authForm, setAuthForm] = useState(defaultAuthState);
     const [authMessage, setAuthMessage] = useState('');
-    const [session, setSession] = useState(() => {
-        try {
-            const stored = window.localStorage.getItem('hashing-demo-session');
-            return stored ? JSON.parse(stored) : null;
-        } catch (error) {
-            console.warn('Failed to read session from storage', error);
-            return null;
-        }
-    });
+    const [session, setSession] = useState(readSessionFromStorage);
     const [recipients, setRecipients] = useState([]);
     const [selectedRecipient, setSelectedRecipient] = useState('');
     const [messageContent, setMessageContent] = useState('');
@@ -23,7 +47,6 @@ function App() {
     const [inbox, setInbox] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     const [isSending, setIsSending] = useState(false);
-    const [visualizingId, setVisualizingId] = useState(null);
     const [videoUrl, setVideoUrl] = useState('');
     const [videoError, setVideoError] = useState('');
 
@@ -31,10 +54,19 @@ function App() {
     const currentUser = session?.user ?? null;
 
     useEffect(() => {
-        if (session) {
-            window.localStorage.setItem('hashing-demo-session', JSON.stringify(session));
-        } else {
-            window.localStorage.removeItem('hashing-demo-session');
+        const storage = getBrowserStorage();
+        if (!storage) {
+            return;
+        }
+
+        try {
+            if (session) {
+                storage.setItem(storageKey, JSON.stringify(session));
+            } else {
+                storage.removeItem(storageKey);
+            }
+        } catch (error) {
+            console.warn('Failed to persist session in storage', error);
         }
     }, [session]);
 
@@ -182,7 +214,7 @@ function App() {
         }
     };
 
-    const refreshInbox = async () => {
+    const refreshInbox = useCallback(async () => {
         try {
             const response = await authorizedFetch('/api/messages/inbox', token);
             if (!response.ok) {
@@ -193,35 +225,44 @@ function App() {
         } catch (error) {
             setStatusMessage(`Error: ${error.message}`);
         }
-    };
+    }, [token]);
 
-    const handleVisualize = async (messageId) => {
+    // Poll for message updates (check every 2 seconds while videos are pending)
+    useEffect(() => {
+        if (!token || inbox.length === 0) {
+            return;
+        }
+
+        // Check if any messages are pending video generation
+        const hasPendingVideos = inbox.some(msg => !msg.visualization_url);
+
+        if (!hasPendingVideos) {
+            return; // No pending videos, stop polling
+        }
+
+        const interval = setInterval(() => {
+            refreshInbox();
+        }, 2000); // Poll every 2 seconds
+
+        return () => clearInterval(interval);
+    }, [token, inbox, refreshInbox]);
+
+    const handleVisualize = async (messageId, visualizationUrl) => {
         setVideoError('');
-        setVisualizingId(messageId);
-
-        try {
-            const response = await authorizedFetch('/api/visualize/signature', token, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message_id: messageId }),
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(errorText || 'Visualization failed.');
-            }
-
-            const blob = await response.blob();
-            const url = URL.createObjectURL(blob);
+        
+        // If visualization URL is available, use it directly
+        if (visualizationUrl) {
+            // Construct full URL for the video
+            const videoFullUrl = `/animation_videos/${messageId}.mp4`;
             if (videoUrl) {
                 URL.revokeObjectURL(videoUrl);
             }
-            setVideoUrl(url);
-        } catch (error) {
-            setVideoError(error.message);
-        } finally {
-            setVisualizingId(null);
+            setVideoUrl(videoFullUrl);
+            return;
         }
+
+        // Fallback: if URL is not available yet, show error
+        setVideoError('Video is still being generated. Please wait...');
     };
 
     const closeVideoModal = () => {
@@ -242,20 +283,34 @@ function App() {
 
         return inbox.map((item) => {
             const timestamp = new Date(item.created_at_utc).toLocaleString();
-            const isLoadingVideo = visualizingId === item.message_id;
+            const hasVideo = !!item.visualization_url;
+            const statusColors = {
+                'Valid': '#2E7D32',
+                'Invalid': '#C62828',
+                'Unsigned': '#FF6F00'
+            };
+            const statusColor = statusColors[item.verification_status] || '#424242';
+            
             return (
                 <div key={item.message_id} className="message-card">
                     <div className="message-card__header">
                         <span className="message-card__sender">From: {item.sender_username}</span>
                         <span className="message-card__time">{timestamp}</span>
                     </div>
+                    <div style={{ marginBottom: '8px' }}>
+                        <strong>Status: </strong>
+                        <span style={{ color: statusColor, fontWeight: 'bold' }}>
+                            {item.verification_status || 'Unknown'}
+                        </span>
+                    </div>
                     <p className="message-card__content">{item.content}</p>
                     <button
                         className="primary-button"
-                        onClick={() => handleVisualize(item.message_id)}
-                        disabled={isLoadingVideo}
+                        onClick={() => handleVisualize(item.message_id, item.visualization_url)}
+                        disabled={!hasVideo}
+                        title={hasVideo ? 'Click to view visualization' : 'Video is being generated...'}
                     >
-                        {isLoadingVideo ? 'Generating…' : 'Verify & Visualize'}
+                        {hasVideo ? 'Visualize' : 'Generating Video...'}
                     </button>
                 </div>
             );
@@ -365,7 +420,16 @@ function App() {
                         <button className="link-button video-modal__close" onClick={closeVideoModal}>
                             Close
                         </button>
-                        <video src={videoUrl} controls autoPlay className="video-player" />
+                        <video 
+                            src={videoUrl} 
+                            controls 
+                            autoPlay 
+                            className="video-player"
+                            onError={(e) => {
+                                setVideoError('Failed to load video. Please try again.');
+                                console.error('Video load error:', e);
+                            }}
+                        />
                     </div>
                 </div>
             )}

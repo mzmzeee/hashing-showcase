@@ -24,7 +24,7 @@ public sealed class SignatureVisualizationService
         }
 
         var messageBytes = Encoding.UTF8.GetBytes(message);
-        var messageHashBytes = Sha256Pure.ComputeHash(messageBytes);
+        var messageHashBytes = System.Security.Cryptography.SHA256.HashData(messageBytes);
         var messageHashHex = Convert.ToHexString(messageHashBytes).ToLowerInvariant();
 
         var signatureBytes = Convert.FromBase64String(signatureBase64);

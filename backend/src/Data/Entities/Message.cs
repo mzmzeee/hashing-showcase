@@ -30,6 +30,14 @@ public class Message
     [Column("signature", TypeName = "text")]
     public required string Signature { get; set; }
 
+    [Required]
+    [MaxLength(20)]
+    [Column("verification_status", TypeName = "varchar(20)")]
+    public string VerificationStatus { get; set; } = "Unsigned";
+
+    [Column("visualization_url", TypeName = "text")]
+    public string? VisualizationUrl { get; set; }
+
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

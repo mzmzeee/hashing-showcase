@@ -3,7 +3,10 @@ using HashingDemo.Api.Auth;
 using HashingDemo.Data;
 using HashingDemo.Logic;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.ResponseCompression;
+using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 
 public class Program
 {
@@ -15,6 +18,14 @@ public class Program
         builder.Services.AddControllers();
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen();
+        
+        // Add response compression for better performance
+        builder.Services.AddResponseCompression(options =>
+        {
+            options.EnableForHttps = true;
+            options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProvider>();
+            options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProvider>();
+        });
         builder.Services.AddScoped<RsaKeyService>();
         builder.Services.AddScoped<SignatureVisualizationService>();
         builder.Services.AddSingleton<TokenStore>();
@@ -65,8 +76,22 @@ public class Program
             app.UseSwaggerUI();
         }
 
+        // Enable response compression
+        app.UseResponseCompression();
+
         app.UseAuthentication();
         app.UseAuthorization();
+
+        // Serve animation videos from shared volume (only if directory exists)
+        var animationVideosPath = "/app/animation_videos";
+        if (Directory.Exists(animationVideosPath))
+        {
+            app.UseStaticFiles(new StaticFileOptions
+            {
+                FileProvider = new PhysicalFileProvider(animationVideosPath),
+                RequestPath = "/animation_videos"
+            });
+        }
 
         app.MapControllers();
 
