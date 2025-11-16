@@ -5,35 +5,7 @@ import os
 import textwrap
 from pathlib import Path
 
-from manim import (
-    DOWN,
-    UP,
-    LEFT,
-    RIGHT,
-    FadeIn,
-    FadeOut,
-    Create,
-    Write,
-    Scene,
-    Text,
-    VGroup,
-    Rectangle,
-    Arrow,
-)
-
-
-def _load_request_payload() -> dict[str, str]:
-    data_path = os.environ.get("ANIMATION_DATA_PATH")
-    if not data_path:
-        raise RuntimeError("ANIMATION_DATA_PATH environment variable is not set.")
-    with Path(data_path).open("r", encoding="utf-8") as handle:
-        return json.load(handle)
-def from __future__ import annotations
-
-import json
-import os
-import textwrap
-from pathlib import Path
+import numpy as np
 
 from manim import (
     DOWN,
@@ -48,331 +20,371 @@ from manim import (
     Text,
     VGroup,
     Rectangle,
+    RoundedRectangle,
     Arrow,
+    CurvedArrow,
+    DoubleArrow,
+    SMALL_BUFF,
+    Line,
+    PI,
 )
 
+
 def _load_request_payload() -> dict[str, str]:
-    """Load the animation data from the path specified in the environment variable."""
+    """Load animation data from environment or use defaults."""
     data_path = os.environ.get("ANIMATION_DATA_PATH")
     if not data_path:
-        # Fallback for local testing if the env var is not set
+        # Default data for testing
         return {
             "message": "This is a test message for the animation.",
-            "message_hash_hex": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
-            "signature_base64": "e5f6g7h8i9j0e5f6g7h8i9j0e5f6g7h8i9j0e5f6g7h8i9j0e5f6g7h8i9j0e5f6",
-            "decrypted_hash_hex": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
-            "recomputed_hash_hex": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+            "message_hash_hex": "a1b2c3d4" * 8,
+            "signature_base64": "ZmFrZV9zaWduYXR1cmU=",
+            "decrypted_hash_hex": "a1b2c3d4" * 8,
+            "recomputed_hash_hex": "a1b2c3d4" * 8,
             "verification_status": "Valid",
             "hashes_match": True,
         }
+
     with Path(data_path).open("r", encoding="utf-8") as handle:
         return json.load(handle)
 
-def _wrap(text: str, width: int = 60) -> str:
-    """Wrap text to a specified width."""
+
+def _wrap(text: str, width: int = 35) -> str:
+    """Wrap text to specified width."""
     if not text:
         return text
-    return "\n".join(textwrap.wrap(text, width=width))
+    wrapped = "\n".join(
+        textwrap.wrap(
+            text,
+            width=width,
+            break_long_words=True,
+            replace_whitespace=False,
+        )
+    )
+    return wrapped
+
 
 class SignatureVisualization(Scene):
-    """Visualize hashing and RSA signing using the provided payload."""
+    """
+    Sequential animation: Sender → Receiver → Check → Verdict.
+    Arrows: side-to-side then down, like the notebook sketch.
+    """
 
-    def construct(self) -> None:  # noqa: D401 - manim entry point
-        """Define the animation sequence."""
+    def construct(self) -> None:
         data = _load_request_payload()
         message = data["message"]
         message_hash_hex = data["message_hash_hex"]
-        signature_b64 = data["signature_base64"]
-        decrypted_hash_hex = data["decrypted_hash_hex"]
+        signature_b64 = data.get("signature_base64", "")
+        decrypted_hash_hex = data.get("decrypted_hash_hex", "")
         recomputed_hash_hex = data.get("recomputed_hash_hex", message_hash_hex)
         verification_status = data.get("verification_status", "Unsigned")
         hashes_match = data.get("hashes_match")
-        if hashes_match is None:
+
+        if hashes_match is None and decrypted_hash_hex and recomputed_hash_hex:
             hashes_match = decrypted_hash_hex == recomputed_hash_hex
 
-        # 1. --- Title ---
+        # ==================== TITLE ====================
+
         title, title_color = self._get_title_and_color(verification_status)
-        self.play(FadeIn(title, shift=DOWN * 0.5))
-        self.wait(1)
+        title.scale(0.8)
+        title.to_edge(UP, buff=0.2)
+        self.play(FadeIn(title, shift=DOWN * 0.3), run_time=0.8)
+        self.wait(1.5)
 
-        # 2. --- Sender Side ---
-        sender_label = Text("Sender", font_size=36).to_edge(UP + LEFT, buff=1)
-        self.play(Write(sender_label))
+        # ==================== PHASE 1: SENDER ====================
 
-        # Create and show message
-        msg_box = self._create_step("1. Plain Message", message, "#424242")
-        msg_box.next_to(sender_label, DOWN, buff=0.5, aligned_edge=LEFT)
-        self.play(FadeIn(msg_box, shift=RIGHT * 0.5))
-        self.wait(1)
+        self.play(FadeOut(title, run_time=0.5))
+        self.wait(0.3)
 
-        # Animate hashing
-        hash_box = self._create_step("2. Hash (SHA-256)", message_hash_hex, "#283593")
-        hash_box.next_to(msg_box, DOWN, buff=1.5)
-        arrow1 = Arrow(msg_box.get_bottom(), hash_box.get_top(), buff=0.2)
-        self.play(Create(arrow1))
-        self.play(FadeIn(hash_box, shift=RIGHT * 0.5))
-        self.wait(1)
+        sender_label = Text("SENDER", font_size=42, weight="BOLD", color="#FFD700")
+        sender_label.move_to([0, 3.4, 0])
+        self.play(Write(sender_label), run_time=0.6)
+        self.wait(0.8)
 
-        if verification_status != "Unsigned":
-            # Animate signing
-            signature_box = self._create_step("3. Sign with Private Key", signature_b64, "#6A1B9A")
-            signature_box.next_to(hash_box, DOWN, buff=1.5)
-            arrow2 = Arrow(hash_box.get_bottom(), signature_box.get_top(), buff=0.2)
-            self.play(Create(arrow2))
-            self.play(FadeIn(signature_box, shift=RIGHT * 0.5))
-            self.wait(2)
+        # Sender: Message
+        msg_box = self._create_step(
+            "Message",
+            _wrap(message),
+            "#424242",
+            scale=0.8
+        )
+        msg_box.move_to([0, 2.2, 0])
+        self.play(FadeIn(msg_box, shift=DOWN * 0.3), run_time=0.6)
+        self.wait(1.2)
 
-            # Group what is sent
-            sent_group = VGroup(msg_box.copy(), signature_box.copy())
-        else:
-            # If unsigned, only the message is "sent"
-            sent_group = VGroup(msg_box.copy())
+        # Sender: Hash
+        hash_box = self._create_step(
+            "Hash (Argon2))",
+            _wrap(message_hash_hex),
+            "#283593",
+            scale=0.8
+        )
+        hash_box.move_to([0, 0.2, 0])
 
-        # Animate sending to receiver
-        receiver_label = Text("Receiver", font_size=36).to_edge(UP + RIGHT, buff=1)
-        self.play(Write(receiver_label))
-        self.play(sent_group.animate.next_to(receiver_label, DOWN, buff=0.5, aligned_edge=RIGHT))
-        self.wait(1)
-
-        # 3. --- Receiver Side ---
-        if verification_status == "Unsigned":
-            # Handle unsigned message
-            unsigned_text = Text("Message is unsigned. Cannot verify.", color="#FF6F00", font_size=32)
-            unsigned_text.next_to(sent_group, DOWN, buff=1)
-            self.play(Write(unsigned_text))
-            self.wait(3)
-        else:
-            # Separate message and signature
-            received_msg = sent_group.submobjects[0]
-            received_sig = sent_group.submobjects[1]
-            self.play(received_msg.animate.shift(LEFT * 2), received_sig.animate.shift(RIGHT * 2))
-            self.wait(1)
-
-            # Path A: Re-hash the message
-            recomputed_hash_box = self._create_step("4a. Recompute Hash", recomputed_hash_hex, "#1565C0")
-            recomputed_hash_box.next_to(received_msg, DOWN, buff=1)
-            arrow3a = Arrow(received_msg.get_bottom(), recomputed_hash_box.get_top(), buff=0.2)
-            self.play(Create(arrow3a))
-            self.play(FadeIn(recomputed_hash_box))
-            self.wait(1)
-
-            # Path B: Decrypt the signature
-            decrypted_hash_box = self._create_step("4b. Decrypt Signature (Public Key)", decrypted_hash_hex, "#00838F")
-            decrypted_hash_box.next_to(received_sig, DOWN, buff=1)
-            arrow3b = Arrow(received_sig.get_bottom(), decrypted_hash_box.get_top(), buff=0.2)
-            self.play(Create(arrow3b))
-            self.play(FadeIn(decrypted_hash_box))
-            self.wait(2)
-
-            # 5. --- Comparison ---
-            compare_label = Text("5. Compare Hashes", font_size=32).move_to(self.camera.frame_center + DOWN * 1.5)
-            self.play(Write(compare_label))
-            self.play(
-                recomputed_hash_box.animate.next_to(compare_label, LEFT, buff=1),
-                decrypted_hash_box.animate.next_to(compare_label, RIGHT, buff=1),
-            )
-            self.wait(1)
-
-            # Show result
-            result_text_str = "✓ Hashes Match" if hashes_match else "✗ Hashes Do Not Match"
-            result_color = "#2E7D32" if hashes_match else "#C62828"
-            result_text = Text(result_text_str, font_size=36, color=result_color)
-            result_text.next_to(compare_label, DOWN, buff=1)
-            self.play(Write(result_text))
-            self.wait(2)
-
-            # Final verification status
-            final_status_str = f"Signature is {verification_status.upper()}"
-            final_status = Text(final_status_str, font_size=40, color=title_color)
-            final_status.to_edge(DOWN, buff=1)
-            self.play(FadeIn(final_status, shift=UP))
-            self.wait(3)
-
-        # 6. --- Fade Out ---
-        self.play(*[FadeOut(mob) for mob in self.mobjects])
-        self.wait(1)
-
-    def _get_title_and_color(self, status: str) -> tuple[Text, str]:
-        """Return the title Text object and color based on verification status."""
-        if status == "Valid":
-            text = "Digital Signature Journey - Valid"
-            color = "#2E7D32"  # Green
-        elif status == "Invalid":
-            text = "Digital Signature Journey - Invalid"
-            color = "#C62828"  # Red
-        else:  # Unsigned
-            text = "Digital Signature Journey - Unsigned"
-            color = "#FF6F00"  # Orange
-
-        title = Text(text, font_size=44, color=color).to_edge(UP)
-        return title, color
-
-    def _create_step(self, title: str, body: str, color: str) -> VGroup:
-        """Create a styled box with a title and body."""
-        header = Text(title, font_size=24, color=color, weight="BOLD")
-        body_text = _wrap(body, width=35)
-        description = Text(body_text if body_text else "(empty)", font_size=20, line_spacing=0.8)
-
-        content_group = VGroup(header, description).arrange(DOWN, buff=0.3, aligned_edge=LEFT)
-
-        box_padding = 0.4
-        backdrop = Rectangle(
-            width=content_group.width + box_padding * 2,
-            height=content_group.height + box_padding * 2,
-            stroke_color=color,
-            stroke_width=2,
-            fill_color=color,
-            fill_opacity=0.08,
+        # Arrow: right side of Message → right side of Hash (curving to the right)
+        arrow1 = CurvedArrow(
+            msg_box.get_right() + RIGHT * 0.25,
+            hash_box.get_right() + RIGHT * 0.25,
+            angle=-PI / 2,
+            color="#FFD700",
+            stroke_width=6,
+            tip_length=0.25,
         )
 
-        group = VGroup(backdrop, content_group)
-        content_group.move_to(backdrop.get_center())
-        return group
+        self.play(Create(arrow1), run_time=0.5)
+        self.play(FadeIn(hash_box, shift=DOWN * 0.3), run_time=0.6)
+        self.wait(1.2)
 
+        # Sender: Signature
+        sig_box = None
+        arrow2 = None
+        if verification_status != "Unsigned":
+            sig_box = self._create_step(
+                "Sign (Private Key)",
+                _wrap(signature_b64),
+                "#6A1B9A",
+                scale=0.8
+            )
+            sig_box.move_to([0, -1.8, 0])
 
-class SignatureVisualization(Scene):
-    """Visualize hashing and RSA signing using the provided payload."""
+            # Arrow: left side of Hash → left side of Sign (curving to the left)
+            arrow2 = CurvedArrow(
+                hash_box.get_left() + LEFT * 0.25,
+                sig_box.get_left() + LEFT * 0.25,
+                angle=PI / 2,
+                color="#FFD700",
+                stroke_width=6,
+                tip_length=0.25,
+            )
 
-    def construct(self) -> None:  # noqa: D401 - manim entry point
-        data = _load_request_payload()
-        message = data["message"]
-        message_hash_hex = data["message_hash_hex"]
-        signature_b64 = data["signature_base64"]
-        decrypted_hash_hex = data["decrypted_hash_hex"]
-        recomputed_hash_hex = data.get("recomputed_hash_hex", message_hash_hex)
-        verification_status = data.get("verification_status", "Unsigned")
-        hashes_match = data.get("hashes_match")
-        if hashes_match is None:
-            hashes_match = decrypted_hash_hex == recomputed_hash_hex
+            self.play(Create(arrow2), run_time=0.5)
+            self.play(FadeIn(sig_box, shift=DOWN * 0.3), run_time=0.6)
+            self.wait(1.2)
 
-        # 1. --- Title ---
-        title, title_color = self._get_title_and_color(verification_status)
-        self.play(FadeIn(title, shift=DOWN * 0.5))
-        self.wait(1)
+        sender_objects = [sender_label, msg_box, hash_box, arrow1]
+        if sig_box is not None:
+            sender_objects.extend([sig_box, arrow2])
+        self.play(*[FadeOut(obj, run_time=0.6) for obj in sender_objects])
+        self.wait(0.8)
 
-        # 2. --- Sender Side ---
-        sender_label = Text("Sender", font_size=36).to_edge(UP + LEFT, buff=1)
-        self.play(Write(sender_label))
+        # ==================== PHASE 2: RECEIVER ====================
 
-        # Create and show message
-        msg_box = self._create_step("1. Plain Message", _wrap(message), "#424242")
-        msg_box.next_to(sender_label, DOWN, buff=0.5, aligned_edge=LEFT)
-        self.play(FadeIn(msg_box, shift=RIGHT * 0.5))
-        self.wait(1)
+        receiver_label = Text(
+            "RECEIVER", font_size=42, weight="BOLD", color="#4CAF50"
+        )
+        receiver_label.move_to([0, 3.4, 0])
+        self.play(Write(receiver_label), run_time=0.6)
+        self.wait(0.8)
 
-        # Animate hashing
-        hash_box = self._create_step("2. Hash (SHA-256)", _wrap(message_hash_hex), "#283593")
-        hash_box.next_to(msg_box, DOWN, buff=1.5)
-        arrow1 = Arrow(msg_box.get_bottom(), hash_box.get_top(), buff=0.2)
-        self.play(Create(arrow1))
-        self.play(FadeIn(hash_box, shift=RIGHT * 0.5))
-        self.wait(1)
+        receiver_objects = [receiver_label]
+
+        if verification_status == "Unsigned":
+            msg_box_rx = self._create_step(
+                "Received Message", _wrap(message), "#424242", scale=0.8
+            )
+            msg_box_rx.move_to([0, 1.5, 0])
+            self.play(FadeIn(msg_box_rx, shift=DOWN * 0.3), run_time=0.6)
+
+            unsigned_text = Text(
+                "⚠ Unsigned\nCannot Verify",
+                color="#FF6F00",
+                font_size=38,
+                weight="BOLD",
+                line_spacing=0.8,
+            )
+            unsigned_text.next_to(msg_box_rx, DOWN, buff=0.8)
+            self.play(Write(unsigned_text), run_time=1.0)
+            self.wait(2.0)
+
+            receiver_objects.extend([msg_box_rx, unsigned_text])
+        else:
+            h_space = 3.8
+
+            # --- Left Branch (Recomputation) ---
+            msg_box_rx = self._create_step(
+                "Received Message", _wrap(message, 25), "#424242", scale=0.8
+            )
+            msg_box_rx.move_to([-h_space, 1.8, 0])
+
+            hash_box_recomp = self._create_step(
+                "Recompute Hash",
+                _wrap(recomputed_hash_hex, 25),
+                "#1565C0",
+                scale=0.8,
+            )
+            hash_box_recomp.move_to([-h_space, -0.8, 0])
+
+            # Arrow: right side (top-left) → right side (bottom-left)
+            arrow_rx1 = CurvedArrow(
+                msg_box_rx.get_right() + RIGHT * 0.25,
+                hash_box_recomp.get_right() + RIGHT * 0.25,
+                angle=-PI / 2,
+                color="#4CAF50",
+                stroke_width=6,
+                tip_length=0.25,
+            )
+
+            # --- Right Branch (Decryption) ---
+            sig_box_rx = self._create_step(
+                "Received Signature", _wrap(signature_b64, 25), "#6A1B9A", scale=0.8
+            )
+            sig_box_rx.move_to([h_space, 1.8, 0])
+
+            hash_box_decrypt = self._create_step(
+                "Decrypt Sig (Public Key)",
+                _wrap(decrypted_hash_hex, 25),
+                "#00838F",
+                scale=0.8,
+            )
+            hash_box_decrypt.move_to([h_space, -0.8, 0])
+
+            # Arrow: left side (top-right) → left side (bottom-right)
+            arrow_rx2 = CurvedArrow(
+                sig_box_rx.get_left() + LEFT * 0.25,
+                hash_box_decrypt.get_left() + LEFT * 0.25,
+                angle=PI / 2,
+                color="#4CAF50",
+                stroke_width=6,
+                tip_length=0.25,
+            )
+
+            self.play(
+                FadeIn(msg_box_rx, shift=DOWN * 0.3),
+                FadeIn(sig_box_rx, shift=DOWN * 0.3),
+                run_time=0.6,
+            )
+            self.wait(1.0)
+            self.play(Create(arrow_rx1), Create(arrow_rx2), run_time=0.5)
+            self.play(
+                FadeIn(hash_box_recomp, shift=DOWN * 0.3),
+                FadeIn(hash_box_decrypt, shift=DOWN * 0.3),
+                run_time=0.6,
+            )
+            self.wait(2.5)
+
+            receiver_objects.extend(
+                [
+                    msg_box_rx,
+                    hash_box_recomp,
+                    arrow_rx1,
+                    sig_box_rx,
+                    hash_box_decrypt,
+                    arrow_rx2,
+                ]
+            )
+
+        self.play(*[FadeOut(obj, run_time=0.6) for obj in receiver_objects])
+        self.wait(0.8)
+
+        # ==================== PHASE 3: VERIFICATION CHECK ====================
 
         if verification_status != "Unsigned":
-            # Animate signing
-            signature_box = self._create_step("3. Sign with Private Key", _wrap(signature_b64), "#6A1B9A")
-            signature_box.next_to(hash_box, DOWN, buff=1.5)
-            arrow2 = Arrow(hash_box.get_bottom(), signature_box.get_top(), buff=0.2)
-            self.play(Create(arrow2))
-            self.play(FadeIn(signature_box, shift=RIGHT * 0.5))
-            self.wait(2)
-
-            # Group what is sent
-            sent_group = VGroup(msg_box.copy(), signature_box.copy())
-        else:
-            # If unsigned, only the message is "sent"
-            sent_group = VGroup(msg_box.copy())
-
-        # Animate sending to receiver
-        receiver_label = Text("Receiver", font_size=36).to_edge(UP + RIGHT, buff=1)
-        self.play(Write(receiver_label))
-        self.play(sent_group.animate.next_to(receiver_label, DOWN, buff=0.5, aligned_edge=RIGHT))
-        self.wait(1)
-
-        # 3. --- Receiver Side ---
-        if verification_status == "Unsigned":
-            # Handle unsigned message
-            unsigned_text = Text("Message is unsigned. Cannot verify.", color="#FF6F00", font_size=32)
-            unsigned_text.next_to(sent_group, DOWN, buff=1)
-            self.play(Write(unsigned_text))
-            self.wait(3)
-        else:
-            # Separate message and signature
-            received_msg = sent_group.submobjects[0]
-            received_sig = sent_group.submobjects[1]
-            self.play(received_msg.animate.shift(LEFT * 2), received_sig.animate.shift(RIGHT * 2))
-            self.wait(1)
-
-            # Path A: Re-hash the message
-            recomputed_hash_box = self._create_step("4a. Recompute Hash", _wrap(recomputed_hash_hex), "#1565C0")
-            recomputed_hash_box.next_to(received_msg, DOWN, buff=1)
-            arrow3a = Arrow(received_msg.get_bottom(), recomputed_hash_box.get_top(), buff=0.2)
-            self.play(Create(arrow3a))
-            self.play(FadeIn(recomputed_hash_box))
-            self.wait(1)
-
-            # Path B: Decrypt the signature
-            decrypted_hash_box = self._create_step("4b. Decrypt Signature (Public Key)", _wrap(decrypted_hash_hex), "#00838F")
-            decrypted_hash_box.next_to(received_sig, DOWN, buff=1)
-            arrow3b = Arrow(received_sig.get_bottom(), decrypted_hash_box.get_top(), buff=0.2)
-            self.play(Create(arrow3b))
-            self.play(FadeIn(decrypted_hash_box))
-            self.wait(2)
-
-            # 5. --- Comparison ---
-            compare_label = Text("5. Compare Hashes", font_size=32).move_to(self.camera.frame_center + DOWN * 1.5)
-            self.play(Write(compare_label))
-            self.play(
-                recomputed_hash_box.animate.next_to(compare_label, LEFT, buff=1),
-                decrypted_hash_box.animate.next_to(compare_label, RIGHT, buff=1),
+            check_label = Text(
+                "VERIFICATION", font_size=42, weight="BOLD", color="#9C27B0"
             )
-            self.wait(1)
+            check_label.move_to([0, 3.4, 0])
+            self.play(Write(check_label), run_time=0.6)
+            self.wait(0.8)
 
-            # Show result
-            result_text_str = "✓ Hashes Match" if hashes_match else "✗ Hashes Do Not Match"
+            hash_recomp_display = self._create_step(
+                "Recomputed", _wrap(recomputed_hash_hex, 25), "#1565C0", scale=0.9
+            )
+            hash_recomp_display.move_to([-h_space, 1.0, 0])
+
+            hash_decrypt_display = self._create_step(
+                "Decrypted", _wrap(decrypted_hash_hex, 25), "#00838F", scale=0.9
+            )
+            hash_decrypt_display.move_to([h_space, 1.0, 0])
+
+            self.play(
+                FadeIn(hash_recomp_display, shift=LEFT * 0.3),
+                FadeIn(hash_decrypt_display, shift=RIGHT * 0.3),
+                run_time=0.8,
+            )
+            self.wait(1.0)
+
+            double_arrow = DoubleArrow(
+                hash_recomp_display.get_right(),
+                hash_decrypt_display.get_left(),
+                buff=0.2,
+                color="#FFD700",
+                stroke_width=10,
+                tip_length=0.35,
+            )
+            self.play(FadeIn(double_arrow), run_time=0.3)
+            self.wait(1.5)
+
+            result_str = "✓ MATCH" if hashes_match else "✗ MISMATCH"
             result_color = "#2E7D32" if hashes_match else "#C62828"
-            result_text = Text(result_text_str, font_size=36, color=result_color)
-            result_text.next_to(compare_label, DOWN, buff=1)
-            self.play(Write(result_text))
-            self.wait(2)
+            result_text = Text(
+                result_str, font_size=48, color=result_color, weight="BOLD"
+            )
+            result_text.move_to([0, -1.5, 0])
+            self.play(Write(result_text), run_time=0.8)
+            self.wait(3.0)
 
-            # Final verification status
-            final_status_str = f"Signature is {verification_status.upper()}"
-            final_status = Text(final_status_str, font_size=40, color=title_color)
-            final_status.to_edge(DOWN, buff=1)
-            self.play(FadeIn(final_status, shift=UP))
-            self.wait(3)
+            self.play(
+                FadeOut(check_label, run_time=0.6),
+                FadeOut(hash_recomp_display, run_time=0.6),
+                FadeOut(hash_decrypt_display, run_time=0.6),
+                FadeOut(double_arrow, run_time=0.6),
+                FadeOut(result_text, run_time=0.6),
+            )
+            self.wait(0.8)
 
-        # 6. --- Fade Out ---
-        self.play(*[FadeOut(mob) for mob in self.mobjects])
-        self.wait(1)
+        # ==================== PHASE 4: FINAL VERDICT ====================
+
+        verdict_str = f"Signature is {verification_status.upper()}"
+        verdict_color = (
+            "#2E7D32"
+            if verification_status == "Valid"
+            else "#C62828"
+            if verification_status == "Invalid"
+            else "#FF6F00"
+        )
+        verdict_text = Text(
+            verdict_str, font_size=54, color=verdict_color, weight="BOLD"
+        )
+        verdict_text.move_to([0, 0, 0])
+        self.play(FadeIn(verdict_text, shift=DOWN * 0.5), run_time=1.0)
+        self.wait(3.0)
+        self.play(FadeOut(verdict_text, run_time=0.8))
+        self.wait(0.5)
 
     def _get_title_and_color(self, status: str) -> tuple[Text, str]:
-        if status == "Valid":
-            text = "Digital Signature Journey - Valid"
-            color = "#2E7D32"  # Green
-        elif status == "Invalid":
-            text = "Digital Signature Journey - Invalid"
-            color = "#C62828"  # Red
-        else:  # Unsigned
-            text = "Digital Signature Journey - Unsigned"
-            color = "#FF6F00"  # Orange
-
-        title = Text(text, font_size=44, color=color).to_edge(UP)
+        text = "Digital Signature Verification"
+        color = (
+            "#2E7D32"
+            if status == "Valid"
+            else "#C62828"
+            if status == "Invalid"
+            else "#FF6F00"
+        )
+        title = Text(text, font_size=48, color=color, weight="BOLD")
         return title, color
 
-    def _create_step(self, title: str, body: str, color: str) -> VGroup:
-        header = Text(title, font_size=24, color=color, weight="BOLD")
-        body_text = _wrap(body, width=35)
-        description = Text(body_text if body_text else "(empty)", font_size=20, line_spacing=0.8)
-        description.next_to(header, DOWN, aligned_edge=LEFT)
-
-        box_padding = 0.5
-        rect_width = max(header.width, description.width) + box_padding
-        rect_height = header.height + description.height + box_padding
-        backdrop = Rectangle(width=rect_width, height=rect_height)
-        backdrop.set_stroke(color=color, width=2).set_fill(color=color, opacity=0.08)
-        group = VGroup(backdrop, header, description)
-        header.move_to(backdrop.get_top() + DOWN * (header.height / 2 + 0.1))
-        description.next_to(header, DOWN, buff=0.2, aligned_edge=LEFT)
+    def _create_step(self, title: str, body: str, color: str, scale: float = 1.0) -> VGroup:
+        header = Text(title, font_size=28, color=color, weight="BOLD")
+        description = Text(
+            body if body else "(empty)",
+            font_size=24,
+            line_spacing=0.8,
+        )
+        content = VGroup(header, description).arrange(
+            DOWN, buff=0.3, aligned_edge=LEFT
+        )
+        padding = 0.4
+        backdrop = RoundedRectangle(
+            width=content.width + padding * 2,
+            height=content.height + padding * 2,
+            stroke_color=color,
+            stroke_width=3,
+            fill_color=color,
+            fill_opacity=0.08,
+            corner_radius=0.1,
+        )
+        group = VGroup(backdrop, content)
+        content.move_to(backdrop.get_center())
+        if scale != 1.0:
+            group.scale(scale)
         return group
