@@ -48,7 +48,7 @@ public static class PasswordHasher
             Password = Encoding.UTF8.GetBytes(password),
             Salt = salt,
             MemoryCost = 65536, // 64 MB in KiB
-            TimeCost = Math.Max(3, iterations), // Ensure at least 3 iterations
+            TimeCost = 4, // Using a fixed TimeCost of 4, which is a reasonable value for Argon2.
             Lanes = 4,
             Threads = 1,
             HashLength = 32 // 256 bits = 32 bytes

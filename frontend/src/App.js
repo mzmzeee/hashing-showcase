@@ -319,10 +319,6 @@ function App() {
 
     return (
         <div className="App">
-            <header className="warning-banner">
-                Educational demo only. Do not use this custom hashing in production—use established password hashing such as bcrypt or Argon2.
-            </header>
-
             {!token && (
                 <div className="auth-card">
                     <h2>{isLogin ? 'Login' : 'Register'}</h2>
