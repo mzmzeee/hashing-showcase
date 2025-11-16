@@ -37,9 +37,15 @@ public static class PasswordHasher
 
     public static string ComputePasswordHash(string password, byte[] salt, int iterations)
     {
+        // Ensure iterations falls within a reasonable range for Argon2 time cost.
+        // This keeps the demo responsive even if someone sets a very large value
+        // (e.g., the default 10,000) while still allowing iteration tuning to
+        // change the resulting hash.
+        var effectiveIterations = Math.Clamp(iterations, 1, 10);
+
         // Argon2id configuration
         // MemoryCost (m) = 65536 KiB = 64 MB
-        // TimeCost (t) = iterations parameter (typically 3-4 for Argon2)
+        // TimeCost (t) = effectiveIterations parameter (typically 3-4 for Argon2)
         // Lanes = 4
         // Threads = 1 (single-threaded for simplicity)
         var config = new Argon2Config
@@ -48,7 +54,7 @@ public static class PasswordHasher
             Password = Encoding.UTF8.GetBytes(password),
             Salt = salt,
             MemoryCost = 65536, // 64 MB in KiB
-            TimeCost = 4, // Using a fixed TimeCost of 4, which is a reasonable value for Argon2.
+            TimeCost = effectiveIterations,
             Lanes = 4,
             Threads = 1,
             HashLength = 32 // 256 bits = 32 bytes

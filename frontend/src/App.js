@@ -265,6 +265,26 @@ function App() {
         setVideoError('Video is still being generated. Please wait...');
     };
 
+    const handleReanimate = async (messageId) => {
+        setInbox(prev => prev.map(msg => msg.message_id === messageId ? { ...msg, visualization_url: null } : msg));
+        setStatusMessage('Requesting re-animation...');
+        try {
+            const response = await authorizedFetch(`/api/messages/${messageId}/reanimate`, token, {
+                method: 'POST',
+            });
+    
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText || 'Failed to re-animate message.');
+            }
+    
+            setStatusMessage('Re-animation requested. The video will be updated shortly.');
+            await refreshInbox();
+        } catch (error) {
+            setStatusMessage(`Error: ${error.message}`);
+        }
+    };
+
     const closeVideoModal = () => {
         if (videoUrl) {
             URL.revokeObjectURL(videoUrl);
@@ -298,20 +318,24 @@ function App() {
                         <span className="message-card__time">{timestamp}</span>
                     </div>
                     <div style={{ marginBottom: '8px' }}>
-                        <strong>Status: </strong>
-                        <span style={{ color: statusColor, fontWeight: 'bold' }}>
-                            {item.verification_status || 'Unknown'}
-                        </span>
+                        <span style={{ fontWeight: 'bold', color: statusColor }}>Status: {item.verification_status}</span>
                     </div>
                     <p className="message-card__content">{item.content}</p>
-                    <button
-                        className="primary-button"
-                        onClick={() => handleVisualize(item.message_id, item.visualization_url)}
-                        disabled={!hasVideo}
-                        title={hasVideo ? 'Click to view visualization' : 'Video is being generated...'}
-                    >
-                        {hasVideo ? 'Visualize' : 'Generating Video...'}
-                    </button>
+                    <div className="message-card__actions">
+                        <button
+                            onClick={() => handleVisualize(item.message_id, item.visualization_url)}
+                            disabled={!hasVideo}
+                            className="button"
+                        >
+                            {hasVideo ? 'Visualize' : 'Generating...'}
+                        </button>
+                        <button
+                            onClick={() => handleReanimate(item.message_id)}
+                            className="button"
+                        >
+                            Re-animate
+                        </button>
+                    </div>
                 </div>
             );
         });
@@ -321,6 +345,7 @@ function App() {
         <div className="App">
             {!token && (
                 <div className="auth-card">
+                    <p className="demo-warning">Educational demo only – do not use real secrets.</p>
                     <h2>{isLogin ? 'Login' : 'Register'}</h2>
                     <form onSubmit={handleAuthSubmit} className="auth-form">
                         <label>

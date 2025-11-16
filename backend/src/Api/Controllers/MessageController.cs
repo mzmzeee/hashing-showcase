@@ -99,7 +99,27 @@ public class MessageController(
         // Using ConfigureAwait(false) to avoid capturing context for better performance
         _ = Task.Run(async () => await GenerateVideoAsync(message.Id, request.Content, signatureBase64, sender.PublicKey, verificationStatus).ConfigureAwait(false));
 
-        return Created($"/api/messages/{message.Id}", new { messageId = message.Id });
+        return Ok(new { messageId = message.Id });
+    }
+
+    [HttpPost("{messageId}/reanimate")]
+    public async Task<IActionResult> ReanimateMessage(Guid messageId)
+    {
+        var message = await context.Messages.Include(m => m.Sender).FirstOrDefaultAsync(m => m.Id == messageId);
+        if (message is null)
+        {
+            return NotFound("Message not found.");
+        }
+
+        if (message.Sender is null)
+        {
+            return BadRequest("Message sender not found.");
+        }
+
+        // Trigger background task to re-generate video
+        _ = Task.Run(async () => await GenerateVideoAsync(message.Id, message.Content, message.Signature, message.Sender.PublicKey, message.VerificationStatus).ConfigureAwait(false));
+
+        return Ok(new { message = "Re-animation process started." });
     }
 
     private async Task GenerateVideoAsync(Guid messageId, string content, string signatureBase64, string? publicKeyPem, string verificationStatus)

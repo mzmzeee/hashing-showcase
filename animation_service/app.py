@@ -45,13 +45,16 @@ def _run_manim(payload_path: Path, media_dir: Path) -> Path:
 
     cmd = [
         "manim",
-        "-ql",
+        "--disable_caching",
+        "-qh",
+        "--fps",
+        "30",
         "scene.py",
         "SignatureVisualization",
         "--media_dir",
         str(media_dir),
         "--output_file",
-        "signature",
+        "signature_1080p30",
     ]
 
     # Reduced timeout for faster test execution (can be increased for production)
@@ -76,11 +79,22 @@ def _run_manim(payload_path: Path, media_dir: Path) -> Path:
             },
         )
 
-    videos = sorted(media_dir.rglob("*.mp4"))
-    if not videos:
-        raise FileNotFoundError("Rendered video not found.")
+    # Manim creates a directory structure like `videos/scene/1080p30` inside media_dir.
+    video_dir = media_dir / "videos" / "scene" / "1080p30"
+    final_video_path = video_dir / "signature_1080p30.mp4"
 
-    return videos[0]
+    if final_video_path.exists():
+        return final_video_path
+
+    # Fallback: search entire videos tree for mp4 files and pick the newest.
+    if not video_dir.exists():
+        raise FileNotFoundError(f"Rendered video directory not found: {video_dir}")
+
+    videos = sorted(video_dir.glob("*.mp4"))
+    if not videos:
+        raise FileNotFoundError(f"Rendered video not found in {video_dir}")
+
+    return videos[-1]
 
 
 @app.post("/generate-animation")
