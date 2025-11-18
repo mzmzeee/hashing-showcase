@@ -172,9 +172,83 @@ public class AuthControllerTests : IClassFixture<CustomWebApplicationFactory<Pro
         Assert.True(bytesRead > 0, "Video file should have content");
     }
 
+    [Fact]
+    public async Task EvilBobMessagesAreMarkedInvalid()
+    {
+        var evilBobPassword = "asdfasdf";
+        var recipientUsername = "recipient_evil_target";
+        var recipientPassword = "recipient-password";
+
+        // Ensure evil_bob exists (registration may fail if the seeder already created the account).
+        _ = await _client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
+        {
+            Username = "evil_bob",
+            Password = evilBobPassword
+        });
+
+        var recipientRegisterResponse = await _client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
+        {
+            Username = recipientUsername,
+            Password = recipientPassword
+        });
+        recipientRegisterResponse.EnsureSuccessStatusCode();
+
+        var evilBobToken = await LoginAndGetTokenAsync("evil_bob", evilBobPassword);
+
+        using var maliciousMessageRequest = new HttpRequestMessage(HttpMethod.Post, "/api/messages")
+        {
+            Content = JsonContent.Create(new SendMessageRequest
+            {
+                RecipientUsername = recipientUsername,
+                Content = "Malicious payload"
+            })
+        };
+        maliciousMessageRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", evilBobToken);
+
+        var maliciousSendResponse = await _client.SendAsync(maliciousMessageRequest);
+        maliciousSendResponse.EnsureSuccessStatusCode();
+
+        var recipientToken = await LoginAndGetTokenAsync(recipientUsername, recipientPassword);
+
+        using var inboxRequest = new HttpRequestMessage(HttpMethod.Get, "/api/messages/inbox");
+        inboxRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", recipientToken);
+
+        var inboxResponse = await _client.SendAsync(inboxRequest);
+        inboxResponse.EnsureSuccessStatusCode();
+
+        var inboxMessages = await inboxResponse.Content.ReadFromJsonAsync<List<MessageSummaryResponse>>(new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        });
+
+        Assert.NotNull(inboxMessages);
+        Assert.Contains(inboxMessages!, message =>
+            message.SenderUsername == "evil_bob" &&
+            string.Equals(message.VerificationStatus, "Invalid", StringComparison.OrdinalIgnoreCase));
+    }
+
     private sealed record LoginResponsePayload(string Token, Guid UserId, string Username, string? PublicKey);
 
     private sealed record MessageCreatedResponse(Guid MessageId);
+
+    private async Task<string> LoginAndGetTokenAsync(string username, string password)
+    {
+        var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest
+        {
+            Username = username,
+            Password = password
+        });
+
+        loginResponse.EnsureSuccessStatusCode();
+
+        var loginPayload = await loginResponse.Content.ReadFromJsonAsync<LoginResponsePayload>(new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        });
+
+        Assert.NotNull(loginPayload);
+        return loginPayload!.Token;
+    }
 
 }
 

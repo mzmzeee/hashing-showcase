@@ -49,6 +49,16 @@ To stop the stack manually (and optionally purge persisted data):
 ./scripts/stop-demo.sh --purge  # stop services and drop database volume
 ```
 
+## Demo accounts
+
+Three demo accounts are automatically seeded after the API starts. All share the password `asdfasdf`:
+
+- `alice` – standard user whose signatures verify successfully.
+- `bob` – standard user to help demonstrate inbox flows.
+- `evil_bob` – intentionally corrupted signer; every message he sends is flagged as **Invalid** so you can test negative paths and animations that show mismatched hashes.
+
+You can still register additional accounts through the UI or API if you’d like.
+
 ## Application flow
 
 1. **Register** – the API creates a user, hashes their password (pure C# SHA-256 + stretching), and generates a 2048-bit RSA keypair stored in the database for visibility.
@@ -133,6 +143,10 @@ Integration tests spin up the Flask process automatically and assert that `/api/
   - Stores the message and signature, returning `{ messageId }`.
 - `GET /api/messages/inbox`
   - Auth required. Returns an array of `{ message_id, sender_username, content, created_at_utc }` ordered by newest first.
+- `POST /api/messages/{messageId}/reanimate`
+  - Auth required. Deletes the cached MP4 for the message (if present) and kicks off a fresh animation render.
+- `DELETE /api/messages/{messageId}`
+  - Auth required. Recipients or senders can remove a message (and its animation) from their inbox/history.
 - `POST /api/visualize/signature`
   - Auth required. `{ "message_id": "guid" }`
   - Streams an MP4 animation visualising signature verification.
@@ -140,12 +154,8 @@ Integration tests spin up the Flask process automatically and assert that `/api/
 ## Sample workflow
 
 ```bash
-# Register two users
-curl -s -X POST http://localhost:8080/api/auth/register -H "Content-Type: application/json" -d '{"username":"alice","password":"Password123!"}'
-curl -s -X POST http://localhost:8080/api/auth/register -H "Content-Type: application/json" -d '{"username":"bob","password":"Password123!"}'
-
-# Login as Alice (requires jq for parsing)
-TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login -H "Content-Type: application/json" -d '{"username":"alice","password":"Password123!"}' | jq -r .token)
+# Login as Alice (pre-seeded demo user, password: asdfasdf)
+TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login -H "Content-Type: application/json" -d '{"username":"alice","password":"asdfasdf"}' | jq -r .token)
 
 # Send Bob a signed message
 curl -s -X POST http://localhost:8080/api/messages \

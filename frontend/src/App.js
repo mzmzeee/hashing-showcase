@@ -49,6 +49,7 @@ function App() {
     const [isSending, setIsSending] = useState(false);
     const [videoUrl, setVideoUrl] = useState('');
     const [videoError, setVideoError] = useState('');
+    const [deleteTargetId, setDeleteTargetId] = useState(null);
 
     const token = session?.token ?? '';
     const currentUser = session?.user ?? null;
@@ -173,10 +174,18 @@ function App() {
         }
     };
 
-    const handleLogout = () => {
-        if (videoUrl) {
+    const cleanupVideoResource = useCallback(() => {
+        if (!videoUrl || !isBrowserEnvironment()) {
+            return;
+        }
+
+        if (videoUrl.startsWith('blob:')) {
             URL.revokeObjectURL(videoUrl);
         }
+    }, [videoUrl]);
+
+    const handleLogout = () => {
+        cleanupVideoResource();
         setVideoUrl('');
         setSession(null);
         setStatusMessage('');
@@ -253,10 +262,8 @@ function App() {
         // If visualization URL is available, use it directly
         if (visualizationUrl) {
             // Construct full URL for the video
-            const videoFullUrl = `/animation_videos/${messageId}.mp4`;
-            if (videoUrl) {
-                URL.revokeObjectURL(videoUrl);
-            }
+            cleanupVideoResource();
+            const videoFullUrl = resolveVisualizationUrl(messageId, visualizationUrl);
             setVideoUrl(videoFullUrl);
             return;
         }
@@ -285,10 +292,44 @@ function App() {
         }
     };
 
-    const closeVideoModal = () => {
-        if (videoUrl) {
-            URL.revokeObjectURL(videoUrl);
+    const handleDelete = async (messageId) => {
+        if (isBrowserEnvironment()) {
+            const confirmed = window.confirm('Delete this message? This cannot be undone.');
+            if (!confirmed) {
+                return;
+            }
         }
+
+        setStatusMessage('Deleting message...');
+        setDeleteTargetId(messageId);
+
+        try {
+            const response = await authorizedFetch(`/api/messages/${messageId}`, token, {
+                method: 'DELETE',
+            });
+
+            if (!response.ok && response.status !== 204) {
+                const errorText = await response.text();
+                throw new Error(errorText || 'Failed to delete message.');
+            }
+
+            setInbox(prev => prev.filter(msg => msg.message_id !== messageId));
+
+            if (videoUrl && videoUrl.includes(messageId)) {
+                cleanupVideoResource();
+                setVideoUrl('');
+            }
+
+            setStatusMessage('Message deleted.');
+        } catch (error) {
+            setStatusMessage(`Error: ${error.message}`);
+        } finally {
+            setDeleteTargetId(null);
+        }
+    };
+
+    const closeVideoModal = () => {
+        cleanupVideoResource();
         setVideoUrl('');
     };
 
@@ -325,15 +366,22 @@ function App() {
                         <button
                             onClick={() => handleVisualize(item.message_id, item.visualization_url)}
                             disabled={!hasVideo}
-                            className="button"
+                            className="message-action-button message-action-button--primary"
                         >
                             {hasVideo ? 'Visualize' : 'Generating...'}
                         </button>
                         <button
                             onClick={() => handleReanimate(item.message_id)}
-                            className="button"
+                            className="message-action-button message-action-button--primary"
                         >
                             Re-animate
+                        </button>
+                        <button
+                            onClick={() => handleDelete(item.message_id)}
+                            className="message-action-button message-action-button--danger"
+                            disabled={deleteTargetId === item.message_id}
+                        >
+                            {deleteTargetId === item.message_id ? 'Deleting…' : 'Delete'}
                         </button>
                     </div>
                 </div>
@@ -466,4 +514,9 @@ function authorizedFetch(url, token, options = {}) {
     return fetch(url, { ...options, headers });
 }
 
+function resolveVisualizationUrl(messageId, visualizationUrl) {
+    const baseUrl = visualizationUrl || `/animation_videos/${messageId}.mp4`;
+    const separator = baseUrl.includes('?') ? '&' : '?';
+    return `${baseUrl}${separator}ts=${Date.now()}`;
+}
 export default App;
