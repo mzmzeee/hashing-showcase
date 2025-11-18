@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -27,6 +28,8 @@ public class MessageController(
     SignatureVisualizationService visualizationService,
     IServiceScopeFactory serviceScopeFactory) : ControllerBase
 {
+    private const string AnimationVideosRoot = "/app/animation_videos";
+
     [HttpPost]
     public async Task<IActionResult> SendMessage(SendMessageRequest request)
     {
@@ -72,6 +75,12 @@ public class MessageController(
             using var rsa = RSA.Create();
             rsa.ImportFromPem(sender.PrivateKey);
             var signature = rsa.SignHash(messageHash, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+
+            if (IsEvilBob(sender.Username))
+            {
+                CorruptSignature(signature);
+            }
+
             signatureBase64 = Convert.ToBase64String(signature);
 
             // Immediately verify the signature to determine status
@@ -105,10 +114,21 @@ public class MessageController(
     [HttpPost("{messageId}/reanimate")]
     public async Task<IActionResult> ReanimateMessage(Guid messageId)
     {
+        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized();
+        }
+
         var message = await context.Messages.Include(m => m.Sender).FirstOrDefaultAsync(m => m.Id == messageId);
         if (message is null)
         {
             return NotFound("Message not found.");
+        }
+
+        if (message.RecipientId != userId && message.SenderId != userId)
+        {
+            return Forbid();
         }
 
         if (message.Sender is null)
@@ -116,10 +136,36 @@ public class MessageController(
             return BadRequest("Message sender not found.");
         }
 
+        DeleteExistingVideo(messageId);
+        message.VisualizationUrl = null;
+        await context.SaveChangesAsync();
+
         // Trigger background task to re-generate video
         _ = Task.Run(async () => await GenerateVideoAsync(message.Id, message.Content, message.Signature, message.Sender.PublicKey, message.VerificationStatus).ConfigureAwait(false));
 
         return Ok(new { message = "Re-animation process started." });
+    }
+
+    [HttpDelete("{messageId}")]
+    public async Task<IActionResult> DeleteMessage(Guid messageId)
+    {
+        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized();
+        }
+
+        var message = await context.Messages.FirstOrDefaultAsync(m => m.Id == messageId && (m.RecipientId == userId || m.SenderId == userId));
+        if (message is null)
+        {
+            return NotFound();
+        }
+
+        context.Messages.Remove(message);
+        await context.SaveChangesAsync();
+        DeleteExistingVideo(messageId);
+
+        return NoContent();
     }
 
     private async Task GenerateVideoAsync(Guid messageId, string content, string signatureBase64, string? publicKeyPem, string verificationStatus)
@@ -157,7 +203,7 @@ public class MessageController(
 
             // Save video to shared volume and update message with URL
             var videoStream = await response.Content.ReadAsStreamAsync();
-            var videoPath = $"/app/animation_videos/{messageId}.mp4";
+            var videoPath = BuildVideoFilePath(messageId);
             
             // Ensure directory exists (only if path exists, otherwise skip video saving for tests)
             var directory = Path.GetDirectoryName(videoPath);
@@ -190,7 +236,7 @@ public class MessageController(
                         var message = await updateContext.Messages.FindAsync(messageId);
                         if (message is not null)
                         {
-                            message.VisualizationUrl = $"/animation_videos/{messageId}.mp4";
+                            message.VisualizationUrl = BuildCacheBustedVisualizationUrl(messageId);
                             await updateContext.SaveChangesAsync();
                         }
                     }
@@ -206,6 +252,55 @@ public class MessageController(
         {
             // Silently handle errors - video generation is best-effort
             // The VisualizationUrl will remain null
+        }
+    }
+
+    private static bool IsEvilBob(string username)
+        => string.Equals(username, "evil_bob", StringComparison.OrdinalIgnoreCase);
+
+    private static void CorruptSignature(byte[] signature)
+    {
+        if (signature.Length == 0)
+        {
+            return;
+        }
+
+        signature[0] ^= 0xFF;
+        if (signature.Length > 5)
+        {
+            signature[5] ^= 0xFF;
+        }
+    }
+
+    private static string BuildVideoFilePath(Guid messageId)
+    {
+        if (string.IsNullOrWhiteSpace(AnimationVideosRoot))
+        {
+            return Path.Combine(Path.GetTempPath(), $"{messageId}.mp4");
+        }
+
+        return Path.Combine(AnimationVideosRoot, $"{messageId}.mp4");
+    }
+
+    private static string BuildCacheBustedVisualizationUrl(Guid messageId)
+    {
+        var cacheBuster = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        return $"/animation_videos/{messageId}.mp4?cb={cacheBuster}";
+    }
+
+    private static void DeleteExistingVideo(Guid messageId)
+    {
+        try
+        {
+            var videoPath = BuildVideoFilePath(messageId);
+            if (System.IO.File.Exists(videoPath))
+            {
+                System.IO.File.Delete(videoPath);
+            }
+        }
+        catch
+        {
+            // Best-effort cleanup
         }
     }
 

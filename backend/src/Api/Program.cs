@@ -1,5 +1,6 @@
 using System;
 using HashingDemo.Api.Auth;
+using HashingDemo.Api.Infrastructure;
 using HashingDemo.Data;
 using HashingDemo.Logic;
 using Microsoft.AspNetCore.Authentication;
@@ -26,8 +27,9 @@ public class Program
             options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProvider>();
             options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProvider>();
         });
-        builder.Services.AddScoped<RsaKeyService>();
-        builder.Services.AddScoped<SignatureVisualizationService>();
+    builder.Services.AddScoped<RsaKeyService>();
+    builder.Services.AddScoped<SignatureVisualizationService>();
+    builder.Services.AddScoped<DemoUserSeeder>();
         builder.Services.AddSingleton<TokenStore>();
         builder.Services
             .AddAuthentication(TokenAuthenticationDefaults.AuthenticationScheme)
@@ -67,6 +69,9 @@ public class Program
             {
                 db.Database.Migrate();
             }
+
+            var seeder = scope.ServiceProvider.GetRequiredService<DemoUserSeeder>();
+            seeder.SeedAsync().GetAwaiter().GetResult();
         }
 
         // Configure the HTTP request pipeline.

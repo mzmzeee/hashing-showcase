@@ -176,8 +176,48 @@ textarea {
 
 .message-card__actions {
     display: flex;
-    gap: 8px;
+    gap: 12px;
+    flex-wrap: wrap;
     margin-top: 12px;
+}
+
+.message-action-button {
+    padding: 12px 24px;
+    font-size: 16px;
+    border-radius: 8px;
+    border: none;
+    font-weight: 600;
+    cursor: pointer;
+    color: #fff;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.message-action-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.message-action-button--primary {
+    background-color: #1976d2;
+    box-shadow: 0 8px 16px rgba(25, 118, 210, 0.25);
+}
+
+.message-action-button--primary:not(:disabled):hover {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 20px rgba(25, 118, 210, 0.35);
+}
+
+.message-action-button--danger {
+    background-color: #d32f2f;
+    box-shadow: 0 8px 16px rgba(211, 47, 47, 0.25);
+}
+
+.message-action-button--danger:not(:disabled):hover {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 20px rgba(211, 47, 47, 0.35);
+}
+
 .demo-warning {
     background: #fff3cd;
     color: #856404;
@@ -187,7 +227,6 @@ textarea {
     font-size: 0.9rem;
     margin-bottom: 16px;
     text-align: center;
-}
 }
 
 .button-secondary {
