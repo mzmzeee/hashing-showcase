@@ -1,5 +1,4 @@
 
-dotnet restore
 # Hashing & Digital Signature Showcase
 
 This project is a simple web application designed to teach students about two important security concepts: **password hashing** and **digital signatures**.
