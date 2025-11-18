@@ -173,6 +173,63 @@ public class AuthControllerTests : IClassFixture<CustomWebApplicationFactory<Pro
     }
 
     [Fact]
+    public async Task SendMessage_CreatesSignatureAndTriggersAnimation()
+    {
+        // Arrange
+        var senderUsername = "sender_anim_test";
+        var recipientUsername = "recipient_anim_test";
+        var password = "password123";
+        var messageContent = "Test message for animation";
+
+        await _client.PostAsJsonAsync("/api/auth/register", new RegisterRequest { Username = senderUsername, Password = password });
+        await _client.PostAsJsonAsync("/api/auth/register", new RegisterRequest { Username = recipientUsername, Password = password });
+
+        var senderToken = await LoginAndGetTokenAsync(senderUsername, password);
+
+        // Act
+        using var requestMessage = new HttpRequestMessage(HttpMethod.Post, "/api/messages")
+        {
+            Content = JsonContent.Create(new SendMessageRequest
+            {
+                RecipientUsername = recipientUsername,
+                Content = messageContent
+            })
+        };
+        requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", senderToken);
+
+        var sendResponse = await _client.SendAsync(requestMessage);
+        sendResponse.EnsureSuccessStatusCode();
+
+        var messageResult = await sendResponse.Content.ReadFromJsonAsync<MessageCreatedResponse>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        Assert.NotNull(messageResult);
+
+        // Assert: Check database for signature and initial state
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var savedMessage = await dbContext.Messages.FindAsync(messageResult.MessageId);
+
+        Assert.NotNull(savedMessage);
+        Assert.False(string.IsNullOrWhiteSpace(savedMessage.Signature));
+        Assert.Null(savedMessage.VisualizationUrl); // Should be null initially
+
+        // Assert: Wait for background processing and check for visualization URL
+        var attempts = 0;
+        while (attempts < 10)
+        {
+            await Task.Delay(500);
+            await dbContext.Entry(savedMessage).ReloadAsync();
+            if (!string.IsNullOrEmpty(savedMessage.VisualizationUrl))
+            {
+                break;
+            }
+            attempts++;
+        }
+
+        Assert.False(string.IsNullOrWhiteSpace(savedMessage.VisualizationUrl), "VisualizationUrl should be set after background processing.");
+        Assert.Contains(".mp4", savedMessage.VisualizationUrl);
+    }
+
+    [Fact]
     public async Task EvilBobMessagesAreMarkedInvalid()
     {
         var evilBobPassword = "asdfasdf";
