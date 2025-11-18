@@ -49,10 +49,14 @@ def _load_request_payload() -> dict[str, str]:
         return json.load(handle)
 
 
-def _wrap(text: str, width: int = 35) -> str:
-    """Wrap text to specified width."""
+def _wrap(text: str, width: int = 35, truncate: int = 0) -> str:
+    """Wrap text to specified width, with optional truncation."""
     if not text:
         return text
+
+    if truncate > 0 and len(text) > truncate:
+        text = text[:truncate] + "..."
+
     wrapped = "\n".join(
         textwrap.wrap(
             text,
@@ -141,7 +145,7 @@ class SignatureVisualization(Scene):
         if verification_status != "Unsigned":
             sig_box = self._create_step(
                 "Sign (Private Key)",
-                _wrap(signature_b64),
+                _wrap(signature_b64, truncate=45),
                 "#6A1B9A",
                 scale=0.8
             )
@@ -226,7 +230,7 @@ class SignatureVisualization(Scene):
 
             # --- Right Branch (Decryption) ---
             sig_box_rx = self._create_step(
-                "Received Signature", _wrap(signature_b64, 25), "#6A1B9A", scale=0.8
+                "Received Signature", _wrap(signature_b64, 25, truncate=30), "#6A1B9A", scale=0.8
             )
             sig_box_rx.move_to([h_space, 1.8, 0])
 

@@ -179,13 +179,13 @@ POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
 if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
   echo "Installing frontend dependencies..."
   if [ -f "$FRONTEND_DIR/package-lock.json" ]; then
-    (cd "$FRONTEND_DIR" && npm ci)
+    (cd "$FRONTEND_DIR" && npm ci --no-audit)
   else
-    (cd "$FRONTEND_DIR" && npm install)
+    (cd "$FRONTEND_DIR" && npm install --no-audit)
   fi
 else
   echo "Ensuring frontend dependencies are up to date..."
-  (cd "$FRONTEND_DIR" && npm install)
+  (cd "$FRONTEND_DIR" && npm install --no-audit)
 fi
 
 if [[ $USE_DOCKER -eq 1 ]]; then
