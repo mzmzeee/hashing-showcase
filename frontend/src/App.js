@@ -299,31 +299,32 @@ function App() {
                 return;
             }
 
-        setStatusMessage('Deleting message...');
-        setDeleteTargetId(messageId);
+            setStatusMessage('Deleting message...');
+            setDeleteTargetId(messageId);
 
-        try {
-            const response = await authorizedFetch(`/api/messages/${messageId}`, token, {
-                method: 'DELETE',
-            });
+            try {
+                const response = await authorizedFetch(`/api/messages/${messageId}`, token, {
+                    method: 'DELETE',
+                });
 
-            if (!response.ok && response.status !== 204) {
-                const errorText = await response.text();
-                throw new Error(errorText || 'Failed to delete message.');
+                if (!response.ok && response.status !== 204) {
+                    const errorText = await response.text();
+                    throw new Error(errorText || 'Failed to delete message.');
+                }
+
+                setInbox(prev => prev.filter(msg => msg.message_id !== messageId));
+
+                if (videoUrl && videoUrl.includes(messageId)) {
+                    cleanupVideoResource();
+                    setVideoUrl('');
+                }
+
+                setStatusMessage('Message deleted.');
+            } catch (error) {
+                setStatusMessage(`Error: ${error.message}`);
+            } finally {
+                setDeleteTargetId(null);
             }
-
-            setInbox(prev => prev.filter(msg => msg.message_id !== messageId));
-
-            if (videoUrl && videoUrl.includes(messageId)) {
-                cleanupVideoResource();
-                setVideoUrl('');
-            }
-
-            setStatusMessage('Message deleted.');
-        } catch (error) {
-            setStatusMessage(`Error: ${error.message}`);
-        } finally {
-            setDeleteTargetId(null);
         }
     };
 

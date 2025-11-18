@@ -339,25 +339,4 @@ public class MessageController(
 
         return Ok(messages);
     }
-
-    [HttpDelete("{messageId}")]
-    public async Task<IActionResult> DeleteMessage(Guid messageId)
-    {
-        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrWhiteSpace(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
-        {
-            return Unauthorized();
-        }
-
-        var message = await context.Messages.FirstOrDefaultAsync(m => m.Id == messageId && m.RecipientId == userId);
-        if (message is null)
-        {
-            return NotFound("Message not found or you don't have permission to delete it.");
-        }
-
-        context.Messages.Remove(message);
-        await context.SaveChangesAsync();
-
-        return Ok(new { message = "Message deleted successfully." });
-    }
 }
