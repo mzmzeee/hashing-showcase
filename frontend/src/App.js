@@ -298,7 +298,6 @@ function App() {
             if (!confirmed) {
                 return;
             }
-        }
 
         setStatusMessage('Deleting message...');
         setDeleteTargetId(messageId);
@@ -367,12 +366,14 @@ function App() {
                             onClick={() => handleVisualize(item.message_id, item.visualization_url)}
                             disabled={!hasVideo}
                             className="message-action-button message-action-button--primary"
+
                         >
                             {hasVideo ? 'Visualize' : 'Generating...'}
                         </button>
                         <button
                             onClick={() => handleReanimate(item.message_id)}
                             className="message-action-button message-action-button--primary"
+
                         >
                             Re-animate
                         </button>
@@ -382,6 +383,7 @@ function App() {
                             disabled={deleteTargetId === item.message_id}
                         >
                             {deleteTargetId === item.message_id ? 'Deleting…' : 'Delete'}
+
                         </button>
                     </div>
                 </div>
@@ -427,7 +429,6 @@ function App() {
                     <div className="dashboard__header">
                         <div>
                             <h2>Hi {currentUser.username}!</h2>
-                            <p>Your public key is saved for others to verify your messages.</p>
                         </div>
                         <button className="link-button" onClick={handleLogout}>
                             Log out

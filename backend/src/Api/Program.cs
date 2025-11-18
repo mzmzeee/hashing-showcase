@@ -11,7 +11,7 @@ using Microsoft.Extensions.FileProviders;
 
 public class Program
 {
-    public static void Main(string[] args)
+    public static async Task Main(string[] args)
     {
         var builder = WebApplication.CreateBuilder(args);
 
@@ -73,6 +73,8 @@ public class Program
             var seeder = scope.ServiceProvider.GetRequiredService<DemoUserSeeder>();
             seeder.SeedAsync().GetAwaiter().GetResult();
         }
+
+        await SeedData.Initialize(app.Services);
 
         // Configure the HTTP request pipeline.
         if (app.Environment.IsDevelopment())

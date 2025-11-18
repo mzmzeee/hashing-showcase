@@ -90,6 +90,15 @@ public class MessageController(
             verificationStatus = isValid ? "Valid" : "Invalid";
         }
 
+        // Corrupt signature if sender is evil_bob
+        if (sender.Username == "evil_bob")
+        {
+            var signature = Convert.FromBase64String(signatureBase64);
+            signature[0] ^= 0xFF; // Flip the first byte
+            signatureBase64 = Convert.ToBase64String(signature);
+            verificationStatus = "Invalid";
+        }
+
         var message = new Message
         {
             SenderId = sender.Id,
@@ -204,6 +213,7 @@ public class MessageController(
             // Save video to shared volume and update message with URL
             var videoStream = await response.Content.ReadAsStreamAsync();
             var videoPath = BuildVideoFilePath(messageId);
+
             
             // Ensure directory exists (only if path exists, otherwise skip video saving for tests)
             var directory = Path.GetDirectoryName(videoPath);
@@ -328,5 +338,26 @@ public class MessageController(
             .ToListAsync();
 
         return Ok(messages);
+    }
+
+    [HttpDelete("{messageId}")]
+    public async Task<IActionResult> DeleteMessage(Guid messageId)
+    {
+        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized();
+        }
+
+        var message = await context.Messages.FirstOrDefaultAsync(m => m.Id == messageId && m.RecipientId == userId);
+        if (message is null)
+        {
+            return NotFound("Message not found or you don't have permission to delete it.");
+        }
+
+        context.Messages.Remove(message);
+        await context.SaveChangesAsync();
+
+        return Ok(new { message = "Message deleted successfully." });
     }
 }
