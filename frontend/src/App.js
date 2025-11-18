@@ -393,7 +393,6 @@ function App() {
         <div className="App">
             {!token && (
                 <div className="auth-card">
-                    <p className="demo-warning">Educational demo only – do not use real secrets.</p>
                     <h2>{isLogin ? 'Login' : 'Register'}</h2>
                     <form onSubmit={handleAuthSubmit} className="auth-form">
                         <label>

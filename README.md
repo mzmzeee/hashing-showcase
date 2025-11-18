@@ -1,193 +1,100 @@
 dotnet restore
-# Hashing & Signatures Showcase
+# Hashing & Digital Signature Showcase
 
-This walkthrough project now covers the full flow of hashing a message, signing it with RSA, delivering it to another user, and visualising the verification in a Manim animation. The stack includes:
+This project is a simple web application designed to teach students about two important security concepts: **password hashing** and **digital signatures**.
 
-- ASP.NET Core Web API (.NET 9) with EF Core + PostgreSQL
-- React SPA with a messaging dashboard and embedded video player
-- Python Flask + Manim service that renders “Digital Signature Journey” animations on demand
-- Pure C# and Python SHA-256 implementations to highlight the underlying primitives
+You can:
+- Create a user account and see how your password gets "hashed" so it can be stored safely.
+- Send "signed" messages to other users.
+- Watch a video animation that shows how the digital signature is checked to make sure the message is authentic.
 
-## Repository layout
+The project uses a few different technologies:
+- **Frontend (what you see in the browser):** React
+- **Backend (the server that does the work):** .NET (C#)
+- **Animation Service (creates the videos):** Python with Manim
+- **Database (stores users and messages):** PostgreSQL
 
-- `backend/src/Api` – ASP.NET Core API (auth + messaging + visualization proxy)
-- `backend/src/Data` – EF Core context, entities, migrations (users & messages)
-- `backend/src/Logic` – hashing helpers, RSA utilities, visualization payload builder
-- `backend/tests` – unit tests and integration flow that exercises the animation service
-- `frontend` – React application (registration/login, send messages, verify & watch video)
-- `animation_service` – Flask microservice that wraps Manim and the Python SHA-256
-- `scripts` – helper scripts for building/starting/stopping the demo
-- `docker-compose.yml` – PostgreSQL, API, and animation service orchestration
+---
 
-## Prerequisites
+## How to Run the Project
 
-- .NET SDK 9.0+
-- Node.js 18+
-- Python 3.10+ (only required if you run the animation service outside Docker)
-- Docker + Docker Compose
-- `npm`, `curl`, and `docker` available in `PATH` for the helper scripts
+The easiest way to run everything is with Docker, which handles all the setup for you.
 
-## Quick start (recommended)
+### Prerequisites
+- **Docker Desktop:** Make sure you have Docker installed and running on your computer.
 
-```bash
-./scripts/build-demo.sh    # one-time build & test pass (optional but useful)
-./scripts/start-demo.sh    # launches Docker services + React dev server
-```
+### Quick Start
+1.  **Open a terminal** (like Command Prompt, PowerShell, or Terminal on Mac/Linux).
+2.  **Navigate to the project folder:**
+    ```bash
+    cd path/to/hash_showcasing
+    ```
+3.  **Run the start script:**
+    -   On **Mac or Linux**:
+        ```bash
+        ./scripts/start-demo.sh
+        ```
+    -   On **Windows**:
+        ```bash
+        .\scripts\start-demo.ps1
+        ```
 
-The start script will:
+This script does everything for you:
+- It starts the database, the backend server, and the animation service.
+- It opens the web application in your browser at `http://localhost:3000`.
 
-1. Create `.env` from `.env.example` if missing.
-2. Install/update frontend dependencies via `npm ci`/`npm install`.
-3. Spin up PostgreSQL, the ASP.NET API, and the animation Flask service via Docker Compose.
-4. Wait for the API (`http://localhost:8080/swagger/index.html`) and the animation service (`http://localhost:5000/generate-animation`).
-5. Launch the React development server on `http://localhost:3000` (press `Ctrl+C` to stop; containers are torn down automatically).
+When you're done, just press `Ctrl+C` in the terminal to stop everything.
 
-To stop the stack manually (and optionally purge persisted data):
+### Demo Users
+The app comes with three ready-to-use accounts. The password for all of them is `asdfasdf`.
 
-```bash
-./scripts/stop-demo.sh          # stop services, keep database volume
-./scripts/stop-demo.sh --purge  # stop services and drop database volume
-```
+-   `alice`: A standard user.
+-   `bob`: Another standard user, so you can send messages back and forth.
+-   `evil_bob`: A special user whose messages will always fail verification. This is to show you what happens when a signature is invalid.
 
-## Demo accounts
+---
 
-Three demo accounts are automatically seeded after the API starts. All share the password `asdfasdf`:
+## What's Happening in the App?
 
-- `alice` – standard user whose signatures verify successfully.
-- `bob` – standard user to help demonstrate inbox flows.
-- `evil_bob` – intentionally corrupted signer; every message he sends is flagged as **Invalid** so you can test negative paths and animations that show mismatched hashes.
+Here’s a simple breakdown of the application's flow.
 
-You can still register additional accounts through the UI or API if you’d like.
+### 1. Creating an Account (Password Hashing)
+- When you register, you provide a username and password.
+- The backend **does not** store your actual password. Instead, it uses a **hashing algorithm (Argon2)** to turn your password into a long, unique string called a "hash."
+- This hash is stored in the database. When you log in, the backend hashes the password you entered and compares it to the stored hash. If they match, you're in!
+- This is much safer because even if someone accessed the database, they would only see the hashes, not your real passwords.
 
-## Application flow
+### 2. Sending a Message (Digital Signatures)
+- When you send a message, the backend creates a **digital signature** for it.
+- This is like a unique, un-forgeable seal for your message. It's created using your own secret "private key."
+- The signature proves two things:
+    1.  **Authenticity:** The message really came from you.
+    2.  **Integrity:** The message wasn't changed after you sent it.
 
-1. **Register** – the API creates a user, hashes their password (pure C# SHA-256 + stretching), and generates a 2048-bit RSA keypair stored in the database for visibility.
-2. **Send message** – an authenticated sender posts content to `/api/messages`. The API hashes the content, signs the hash with the sender’s private key, and stores both message and signature.
-3. **Inbox** – recipients call `/api/messages/inbox` to pull recent messages along with sender usernames.
-4. **Verify & Visualize** – clicking the button on the frontend calls `/api/visualize/signature`, which:
-   - Builds a visualization payload using `SignatureVisualizationService`.
-   - Proxies the payload to the Flask Manim service.
-   - Streams the returned MP4 back to the browser for playback.
+### 3. Receiving and Verifying a Message
+- When another user receives your message, their screen will show if the signature is "Valid" or "Invalid."
+- The backend uses your "public key" (which everyone can see) to check the signature.
+- If the check passes, the message is marked as **Valid (Green)**.
+- If the check fails (like with `evil_bob`'s messages), it's marked as **Invalid (Red)**.
 
-The animation highlights hashing, signing, verification, recomputation, and final comparison.
+### 4. Visualizing the Signature
+- Click the **"Visualize"** button on any message to see an animation of the verification process.
+- The animation service creates a short video that shows:
+    1.  The original message content.
+    2.  The process of creating a hash of the message.
+    3.  How the signature is checked using the public key.
+    4.  The final result: whether the hashes match or not.
 
-## Manual backend run
+---
 
-```bash
-cd backend
-dotnet restore
-dotnet ef database update --project src/Data/Data.csproj --startup-project src/Api/Api.csproj
-cd src/Api
-ASPNETCORE_URLS=http://localhost:8080 dotnet run
-```
+## Project Structure for Students
 
-## Manual frontend run
+If you want to explore the code, here’s where to look:
 
-```bash
-cd frontend
-npm install    # or npm ci if you prefer
-npm start
-```
+-   `frontend/src/App.js`: The main file for the React user interface. This is where all the buttons and message cards are defined.
+-   `backend/src/Api/Controllers/MessageController.cs`: The C# code that handles sending messages, checking the inbox, and creating signatures.
+-   `animation_service/scene.py`: The Python code that defines the Manim animation scene. You can change this file to alter the video.
+-   `docker-compose.yml`: This file tells Docker how to run all the different parts of the project together.
 
-Set `REACT_APP_API_BASE` if you proxy to a non-default API URL.
+Have fun exploring!
 
-## Animation service (standalone)
-
-```bash
-cd animation_service
-pip install -r requirements.txt
-python app.py  # runs on http://127.0.0.1:5000
-```
-
-The service expects a POST payload with `message`, `message_hash_hex`, `signature_base64`, `decrypted_hash_hex`, `recomputed_hash_hex`, and an optional `hashes_match` flag.
-
-## Configuration matrix
-
-All settings can be supplied via `appsettings*.json`, environment variables, or `.env` (Docker Compose). Use `__` to represent `:` when exporting environment variables.
-
-| Key | Purpose | Default |
-| --- | --- | --- |
-| `POSTGRES_DB` | PostgreSQL database name | `hashing_demo` |
-| `POSTGRES_USER` | PostgreSQL user | `user` |
-| `POSTGRES_PASSWORD` | PostgreSQL password | `password` |
-| `POSTGRES_PORT` | Host port exposure for PostgreSQL | `5432` |
-| `API_PORT` | Host port exposure for ASP.NET API | `8080` |
-| `ANIMATION_API_PORT` | Host port exposure for Flask animation service | `5000` |
-| `ConnectionStrings__DefaultConnection` | API connection string | Points to Docker `db` service |
-| `PasswordHashing__Iterations` | Stretching iterations for demo password hashing | `10000` |
-| `AnimationService__BaseUrl` | Base URL the API uses to reach the animation service | `http://animation-api:5000/` in Docker, `http://127.0.0.1:5000/` locally |
-
-## Tests
-
-```bash
-cd backend
-dotnet test
-
-cd ../frontend
-CI=true npm test -- --watch=false
-```
-
-Integration tests spin up the Flask process automatically and assert that `/api/visualize/signature` streams an MP4.
-
-## API reference
-
-- `POST /api/auth/register`
-  - `{ "username": "string", "password": "string" }`
-  - Returns `201 Created` on success.
-- `POST /api/auth/login`
-  - Returns `{ token, userId, username, publicKey }` for use in `Authorization: Bearer <token>` headers.
-- `GET /api/auth/public_keys`
-  - Returns `{ username, publicKey }[]` for populating the recipient dropdown.
-- `POST /api/messages`
-  - Auth required. `{ "recipient_username": "string", "content": "string" }`
-  - Stores the message and signature, returning `{ messageId }`.
-- `GET /api/messages/inbox`
-  - Auth required. Returns an array of `{ message_id, sender_username, content, created_at_utc }` ordered by newest first.
-- `POST /api/messages/{messageId}/reanimate`
-  - Auth required. Deletes the cached MP4 for the message (if present) and kicks off a fresh animation render.
-- `DELETE /api/messages/{messageId}`
-  - Auth required. Recipients or senders can remove a message (and its animation) from their inbox/history.
-- `POST /api/visualize/signature`
-  - Auth required. `{ "message_id": "guid" }`
-  - Streams an MP4 animation visualising signature verification.
-
-## Sample workflow
-
-```bash
-# Login as Alice (pre-seeded demo user, password: asdfasdf)
-TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login -H "Content-Type: application/json" -d '{"username":"alice","password":"asdfasdf"}' | jq -r .token)
-
-# Send Bob a signed message
-curl -s -X POST http://localhost:8080/api/messages \
-  -H "Authorization: Bearer ${TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"recipient_username":"bob","content":"Hello from Alice"}'
-```
-
-Bob can then log in, open the inbox, and trigger the visualisation from the frontend.
-
-## Replacing the demo hashing (production guidance)
-
-Swap out `PasswordHasher` for a supported algorithm before shipping anything real:
-
-- **BCrypt** – [`BCrypt.Net-Next`](https://www.nuget.org/packages/BCrypt.Net-Next/)
-  ```csharp
-  var hash = BCrypt.Net.BCrypt.HashPassword(password);
-  var isValid = BCrypt.Net.BCrypt.Verify(password, hash);
-  ```
-- **Argon2** – [`Isopoh.Cryptography.Argon2`](https://www.nuget.org/packages/Isopoh.Cryptography.Argon2/)
-  ```csharp
-  var config = new Argon2Config { Password = Encoding.UTF8.GetBytes(password) };
-  var hash = Argon2.Hash(config);
-  var isValid = Argon2.Verify(hash, password);
-  ```
-
-Remove the pure SHA-256 helpers once you adopt one of these libraries.
-
-## Troubleshooting
-
-- **Containers exit immediately** – run `docker compose logs` to check for migration issues or missing environment variables.
-- **Animation endpoint fails** – ensure port `5000` is free or update `ANIMATION_API_PORT`/`AnimationService__BaseUrl` accordingly.
-- **Integration test warnings** – EF Core emits a version conflict warning when different packages pull slightly different `Microsoft.EntityFrameworkCore.Relational` builds; the tests still pass but you can align package versions if it becomes distracting.
-
-Happy demoing!

@@ -87,15 +87,27 @@ public class Program
         app.UseAuthentication();
         app.UseAuthorization();
 
-        // Serve animation videos from shared volume (only if directory exists)
+        // Serve animation videos from shared volume. Ensure the directory exists so static files
+        // middleware is always registered even if the shared volume is created after container start.
         var animationVideosPath = "/app/animation_videos";
-        if (Directory.Exists(animationVideosPath))
+        try
         {
+            if (!Directory.Exists(animationVideosPath))
+            {
+                Directory.CreateDirectory(animationVideosPath);
+            }
+
             app.UseStaticFiles(new StaticFileOptions
             {
                 FileProvider = new PhysicalFileProvider(animationVideosPath),
                 RequestPath = "/animation_videos"
             });
+        }
+        catch
+        {
+            // Best-effort: if creating the directory or registering static files fails
+            // (permission issues, read-only filesystem, etc.), continue running without
+            // the static files middleware. Video serving will fail until resolved.
         }
 
         app.MapControllers();
