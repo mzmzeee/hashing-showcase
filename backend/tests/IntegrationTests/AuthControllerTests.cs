@@ -317,7 +317,8 @@ public class CustomWebApplicationFactory<TProgram> : WebApplicationFactory<TProg
         {
             var overrides = new Dictionary<string, string?>
             {
-                ["PasswordHashing:Iterations"] = "3"
+                ["PasswordHashing:Iterations"] = "3",
+                ["AnimationVideos:RootPath"] = Path.Combine(Path.GetTempPath(), "HashingDemoTests", Guid.NewGuid().ToString())
             };
 
             config.AddInMemoryCollection(overrides);

@@ -26,6 +26,8 @@ jobs:
         run: dotnet build backend/HashingDemo.sln --no-restore --configuration Release
 
       - name: Run backend tests
+        env:
+          DOTNET_ROLL_FORWARD: Major
         run: dotnet test backend/HashingDemo.sln --no-build --configuration Release
 
       - name: Set up Node.js

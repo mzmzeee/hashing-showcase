@@ -258,7 +258,7 @@ function App() {
 
     const handleVisualize = async (messageId, visualizationUrl) => {
         setVideoError('');
-        
+
         // If visualization URL is available, use it directly
         if (visualizationUrl) {
             // Construct full URL for the video
@@ -279,12 +279,12 @@ function App() {
             const response = await authorizedFetch(`/api/messages/${messageId}/reanimate`, token, {
                 method: 'POST',
             });
-    
+
             if (!response.ok) {
                 const errorText = await response.text();
                 throw new Error(errorText || 'Failed to re-animate message.');
             }
-    
+
             setStatusMessage('Re-animation requested. The video will be updated shortly.');
             await refreshInbox();
         } catch (error) {
@@ -351,7 +351,7 @@ function App() {
                 'Unsigned': '#FF6F00'
             };
             const statusColor = statusColors[item.verification_status] || '#424242';
-            
+
             return (
                 <div key={item.message_id} className="message-card">
                     <div className="message-card__header">
@@ -490,10 +490,10 @@ function App() {
                         <button className="link-button video-modal__close" onClick={closeVideoModal}>
                             Close
                         </button>
-                        <video 
-                            src={videoUrl} 
-                            controls 
-                            autoPlay 
+                        <video
+                            src={videoUrl}
+                            controls
+                            autoPlay
                             className="video-player"
                             onError={(e) => {
                                 setVideoError('Failed to load video. Please try again.');

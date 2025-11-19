@@ -22,13 +22,27 @@ namespace HashingDemo.Api.Controllers;
 [ApiController]
 [Route("api/messages")]
 [Authorize(AuthenticationSchemes = TokenAuthenticationDefaults.AuthenticationScheme)]
-public class MessageController(
-    AppDbContext context,
-    IHttpClientFactory httpClientFactory,
-    SignatureVisualizationService visualizationService,
-    IServiceScopeFactory serviceScopeFactory) : ControllerBase
+public class MessageController : ControllerBase // Added base class ControllerBase
 {
-    private const string AnimationVideosRoot = "/app/animation_videos";
+    private readonly AppDbContext _context;
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly SignatureVisualizationService _visualizationService;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly string _animationVideosRoot;
+
+    public MessageController(
+        AppDbContext context,
+        IHttpClientFactory httpClientFactory,
+        SignatureVisualizationService visualizationService,
+        IServiceScopeFactory serviceScopeFactory,
+        IConfiguration configuration)
+    {
+        _context = context;
+        _httpClientFactory = httpClientFactory;
+        _visualizationService = visualizationService;
+        _serviceScopeFactory = serviceScopeFactory;
+        _animationVideosRoot = configuration["AnimationVideos:RootPath"] ?? "/app/animation_videos";
+    }
 
     [HttpPost]
     public async Task<IActionResult> SendMessage(SendMessageRequest request)
@@ -39,7 +53,7 @@ public class MessageController(
             return Unauthorized();
         }
 
-        var sender = await context.Users.FirstOrDefaultAsync(u => u.Id == senderId);
+        var sender = await _context.Users.FirstOrDefaultAsync(u => u.Id == senderId);
         if (sender is null)
         {
             return Unauthorized();
@@ -50,7 +64,7 @@ public class MessageController(
         {
             return BadRequest("Recipient username is required.");
         }
-        var recipient = await context.Users.FirstOrDefaultAsync(u => u.Username == normalizedRecipient);
+        var recipient = await _context.Users.FirstOrDefaultAsync(u => u.Username == normalizedRecipient);
         if (recipient is null)
         {
             return NotFound("Recipient user not found.");
@@ -110,8 +124,8 @@ public class MessageController(
             CreatedAt = DateTime.UtcNow
         };
 
-        context.Messages.Add(message);
-        await context.SaveChangesAsync();
+        _context.Messages.Add(message);
+        await _context.SaveChangesAsync();
 
         // Trigger background task to generate video (non-blocking, fire-and-forget)
         // Using ConfigureAwait(false) to avoid capturing context for better performance
@@ -129,7 +143,7 @@ public class MessageController(
             return Unauthorized();
         }
 
-        var message = await context.Messages.Include(m => m.Sender).FirstOrDefaultAsync(m => m.Id == messageId);
+        var message = await _context.Messages.Include(m => m.Sender).FirstOrDefaultAsync(m => m.Id == messageId);
         if (message is null)
         {
             return NotFound("Message not found.");
@@ -147,7 +161,7 @@ public class MessageController(
 
         DeleteExistingVideo(messageId);
         message.VisualizationUrl = null;
-        await context.SaveChangesAsync();
+        await _context.SaveChangesAsync();
 
         // Trigger background task to re-generate video
         _ = Task.Run(async () => await GenerateVideoAsync(message.Id, message.Content, message.Signature, message.Sender.PublicKey, message.VerificationStatus).ConfigureAwait(false));
@@ -164,14 +178,14 @@ public class MessageController(
             return Unauthorized();
         }
 
-        var message = await context.Messages.FirstOrDefaultAsync(m => m.Id == messageId && (m.RecipientId == userId || m.SenderId == userId));
+        var message = await _context.Messages.FirstOrDefaultAsync(m => m.Id == messageId && (m.RecipientId == userId || m.SenderId == userId));
         if (message is null)
         {
             return NotFound();
         }
 
-        context.Messages.Remove(message);
-        await context.SaveChangesAsync();
+        _context.Messages.Remove(message);
+        await _context.SaveChangesAsync();
         DeleteExistingVideo(messageId);
 
         return NoContent();
@@ -185,7 +199,7 @@ public class MessageController(
             SignatureVisualizationData? visualizationData = null;
             if (!string.IsNullOrWhiteSpace(publicKeyPem) && !string.IsNullOrWhiteSpace(signatureBase64))
             {
-                visualizationData = visualizationService.Create(content, signatureBase64, publicKeyPem);
+                visualizationData = _visualizationService.Create(content, signatureBase64, publicKeyPem);
             }
 
             // Prepare payload for animation service
@@ -201,7 +215,7 @@ public class MessageController(
             };
 
             // Call animation service
-            var client = httpClientFactory.CreateClient("AnimationService");
+            var client = _httpClientFactory.CreateClient("AnimationService");
             var response = await client.PostAsJsonAsync("generate-animation", payload);
 
             if (!response.IsSuccessStatusCode)
@@ -213,6 +227,7 @@ public class MessageController(
             // Save video to shared volume and update message with URL
             var videoStream = await response.Content.ReadAsStreamAsync();
             var videoPath = BuildVideoFilePath(messageId);
+            Console.WriteLine($"[GenerateVideoAsync] Video path: {videoPath}");
 
             
             // Ensure directory exists (only if path exists, otherwise skip video saving for tests)
@@ -225,8 +240,9 @@ public class MessageController(
                     {
                         Directory.CreateDirectory(directory);
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        Console.WriteLine($"[GenerateVideoAsync] Directory creation failed: {ex.Message}");
                         // Directory creation failed (likely in test environment), skip video saving
                         return;
                     }
@@ -238,9 +254,10 @@ public class MessageController(
                     {
                         await videoStream.CopyToAsync(fileStream);
                     }
+                    Console.WriteLine($"[GenerateVideoAsync] Video saved to {videoPath}");
 
                     // Update message with visualization URL using a new scope
-                    using (var scope = serviceScopeFactory.CreateScope())
+                    using (var scope = _serviceScopeFactory.CreateScope())
                     {
                         var updateContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                         var message = await updateContext.Messages.FindAsync(messageId);
@@ -248,18 +265,25 @@ public class MessageController(
                         {
                             message.VisualizationUrl = BuildCacheBustedVisualizationUrl(messageId);
                             await updateContext.SaveChangesAsync();
+                            Console.WriteLine($"[GenerateVideoAsync] Updated message {messageId} with URL {message.VisualizationUrl}");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"[GenerateVideoAsync] Message {messageId} not found in update context");
                         }
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    Console.WriteLine($"[GenerateVideoAsync] File saving or DB update failed: {ex}");
                     // File saving failed, skip but don't throw
                     return;
                 }
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            Console.WriteLine($"Error in GenerateVideoAsync: {ex}");
             // Silently handle errors - video generation is best-effort
             // The VisualizationUrl will remain null
         }
@@ -282,14 +306,14 @@ public class MessageController(
         }
     }
 
-    private static string BuildVideoFilePath(Guid messageId)
+    private string BuildVideoFilePath(Guid messageId)
     {
-        if (string.IsNullOrWhiteSpace(AnimationVideosRoot))
+        if (string.IsNullOrWhiteSpace(_animationVideosRoot))
         {
             return Path.Combine(Path.GetTempPath(), $"{messageId}.mp4");
         }
 
-        return Path.Combine(AnimationVideosRoot, $"{messageId}.mp4");
+        return Path.Combine(_animationVideosRoot, $"{messageId}.mp4");
     }
 
     private static string BuildCacheBustedVisualizationUrl(Guid messageId)
@@ -298,7 +322,7 @@ public class MessageController(
         return $"/animation_videos/{messageId}.mp4?cb={cacheBuster}";
     }
 
-    private static void DeleteExistingVideo(Guid messageId)
+    private void DeleteExistingVideo(Guid messageId)
     {
         try
         {
@@ -323,7 +347,7 @@ public class MessageController(
             return Unauthorized();
         }
 
-        var messages = await context.Messages
+        var messages = await _context.Messages
             .AsNoTracking() // Read-only query, no tracking needed
             .Where(m => m.RecipientId == recipientId)
             .Include(m => m.Sender)
