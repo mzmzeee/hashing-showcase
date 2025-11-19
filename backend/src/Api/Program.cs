@@ -28,7 +28,7 @@ public class Program
             options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProvider>();
         });
     builder.Services.AddScoped<RsaKeyService>();
-    builder.Services.AddScoped<SignatureVisualizationService>();
+    builder.Services.AddSingleton<SignatureVisualizationService>();
     builder.Services.AddScoped<DemoUserSeeder>();
         builder.Services.AddSingleton<TokenStore>();
         builder.Services

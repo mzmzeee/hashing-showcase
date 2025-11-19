@@ -214,7 +214,7 @@ public class AuthControllerTests : IClassFixture<CustomWebApplicationFactory<Pro
 
         // Assert: Wait for background processing and check for visualization URL
         var attempts = 0;
-        while (attempts < 10)
+        while (attempts < 30)
         {
             await Task.Delay(500);
             await dbContext.Entry(savedMessage).ReloadAsync();

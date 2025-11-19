@@ -220,4 +220,4 @@ else
 fi
 
 cd "$FRONTEND_DIR"
-BROWSER=none PORT="$FRONTEND_PORT" npm start
+BROWSER=none PORT="$FRONTEND_PORT" npm run start
